@@ -53,7 +53,7 @@ GPIO.setup(proc_control, GPIO.OUT)
 GPIO.output(proc_control, GPIO.LOW)
 
 # setup for output to port A
-#GPIO.output(CS_handshake, GPIO.LOW)       # enable IC2, to pass handshake signals to/from target
+GPIO.output(CS_handshake, GPIO.LOW)       # enable IC2, to pass handshake signals to/from target
 GPIO.output(CS_portB, GPIO.HIGH) # ensure port B is deselected, before we select port A
 GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
 GPIO.output(CS_portA, GPIO.LOW)  # enable IC1, to pass data from the bus to port A
@@ -110,21 +110,17 @@ def send_word(word):
     return word
 
 def get_byte():
+    while GPIO.HIGH == GPIO.input(PortB_DATA_READY): # ToDo: use wait for edge?
+        pass
+    
     input = bus_read()
     GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
-    GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
     
-    out = 0
-    for bit in input:
-        out = (out << 1) | bit
-        
-    return out
+    while GPIO.LOW == GPIO.input(PortB_DATA_READY): # ToDo: use wait for edge?
+        pass
+    
+    GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
 
-def get_byte2():
-    input = bus_read()
-    GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
-    GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
-    
     out = 0
     for bit in input:
         out = (out << 1) | bit
@@ -138,14 +134,15 @@ def listen():
     GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
     GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
 
-    GPIO.output(CS_handshake, GPIO.LOW)       # signal that we're entering the listen phase
+#    GPIO.output(CS_handshake, GPIO.LOW)       # signal that we're entering the listen phase
   
-    for i in range(10):
-        byte = get_byte2()
+    while True:
+        int8 = get_byte()
         
-        if None != byte:
-            print ("byte = ", hex(byte))
-        
+        if None != int8:
+#             print ("byte = ", hex(int8), " char = ", chr(int8))
+            print(chr(int8), end='')
+            
     return
 
 with open ("newtick.ex9", 'rb') as f:

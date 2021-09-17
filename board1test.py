@@ -145,27 +145,40 @@ def listen():
             
     return
 
-with open ("newtick.ex9", 'rb') as f:
+def dload_exec(load_addr, data, exec_addr):
+    "Download bytes and execute specified address - not necessarily witin the download"
     send_byte(0xAA)
-    
-    word = f.read(2)
-    load_addr = int.from_bytes(word, "big")
-    word = f.read(2)
-    length = int.from_bytes(word, "big")
-    print ("load address = ", hex(load_addr), "length = ", length);
     send_word(load_addr)
-    send_word(length)
+    send_word(len(data))
 
-    while length:
-        length -= 1
-        byte = f.read(1)
-        send_byte(int.from_bytes(byte, "big"))
-        
-    word = f.read(2)
-    exec_addr = int.from_bytes(word, "big")
-    print ("exec address = ", hex(exec_addr));
-    #GPIO.output(CS_handshake, GPIO.HIGH)
+    for byte in data:
+        send_byte(byte)
+
     send_word(exec_addr)
+
+def dload_exec_file(filename):
+    "Download and execute the specified file"
+    with open (filename, 'rb') as f:
+        # Get load address
+        load_addr = int.from_bytes(f.read(2), "big")
+        # Get data length
+        length = int.from_bytes(f.read(2), "big")
+        # Get data
+        data = f.read(length)
+        assert(length == len(data))
+        # Get exec address
+        exec_addr = int.from_bytes(f.read(2), "big")
+
+        print ("load address = ", hex(load_addr),
+               "length = ", length,
+               "exec address = ", hex(exec_addr));
+        
+        dload_exec(load_addr, data, exec_addr)
+
+# Main program starts here
+dload_exec_file("newtick-new.ex9")
+    
+    #GPIO.output(CS_handshake, GPIO.HIGH)
 
 listen()
 print ("Done.")

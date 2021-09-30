@@ -3,6 +3,13 @@ try:
 except RuntimeError:
     print("Error importing RPi.GPIO")
     
+try:
+    import time
+except RuntimeError:
+    print("Error importing time")
+    
+GPIO.cleanup()
+
 assert(GPIO.getmode() == None)
 
 GPIO.setmode(GPIO.BOARD); # use Pi connector pin numbering
@@ -46,14 +53,23 @@ GPIO.setup(PortB_DATA_READY, GPIO.IN)  # "data ready" input
 GPIO.output([PortA_DATA_READY, PortB_DATA_TAKEN], GPIO.HIGH) # clear handshakes
 
 # 6809 processor control (output, active-high)
-RST = 24 # GP08
-NMI = 22 # GP25
-proc_control = [RST, NMI]
-GPIO.setup(proc_control, GPIO.OUT)
-GPIO.output(proc_control, GPIO.LOW)
+RST_NMI = 24 # GP08
+GPIO.setup(RST_NMI, GPIO.OUT)
+GPIO.output(RST_NMI, GPIO.LOW)
+
+    
+# reset the 6809
+# GPIO.output(proc_control, GPIO.HIGH)
+# time.sleep(0.001)
+# GPIO.output(proc_control, GPIO.LOW)
 
 # setup for output to port A
 GPIO.output(CS_handshake, GPIO.LOW)       # enable IC2, to pass handshake signals to/from target
+time.sleep(0.000001)
+GPIO.output(CS_handshake, GPIO.HIGH)
+time.sleep(0.000001)
+GPIO.output(CS_handshake, GPIO.LOW)
+
 GPIO.output(CS_portB, GPIO.HIGH) # ensure port B is deselected, before we select port A
 GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
 GPIO.output(CS_portA, GPIO.LOW)  # enable IC1, to pass data from the bus to port A
@@ -79,7 +95,6 @@ def send_byte(int8):
     GPIO.output(CS_portB, GPIO.HIGH) # ensure port B is deselected, before we select port A
     GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
     GPIO.output(CS_portA, GPIO.LOW)  # enable IC1, to pass data from the bus to port A
-#    GPIO.output(CS_handshake, GPIO.LOW)       # enable IC2, to pass handshake signals to/from target
 
     output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
     GPIO.output(data_bus, output)
@@ -134,9 +149,16 @@ def listen():
     GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
     GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
 
-#    GPIO.output(CS_handshake, GPIO.LOW)       # signal that we're entering the listen phase
-  
+    my_time = time.time()
+    
     while True:
+        if time.time() > (my_time + 5):
+            GPIO.output(RST_NMI, GPIO.HIGH)
+            time.sleep(0.000001333)
+            GPIO.output(RST_NMI, GPIO.LOW)
+            print("blip")
+            my_time = time.time()
+            
         int8 = get_byte()
         
         if None != int8:
@@ -146,7 +168,7 @@ def listen():
     return
 
 def dload_exec(load_addr, data, exec_addr):
-    "Download bytes and execute specified address - not necessarily witin the download"
+    "Download bytes and execute specified address - not necessarily within the download"
     send_byte(0xAA)
     send_word(load_addr)
     send_word(len(data))
@@ -176,10 +198,8 @@ def dload_exec_file(filename):
         dload_exec(load_addr, data, exec_addr)
 
 # Main program starts here
-dload_exec_file("newtick-new.ex9")
+dload_exec_file("test1.ex9")
     
-    #GPIO.output(CS_handshake, GPIO.HIGH)
-
 listen()
 print ("Done.")
 

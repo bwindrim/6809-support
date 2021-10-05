@@ -12,6 +12,13 @@ assert(GPIO.getmode() == None)
 
 GPIO.setmode(GPIO.BOARD); # use Pi connector pin numbering
 
+# 6809 processor control (output, active-high)
+RST_NMI = 24 # GP08
+GPIO.setup(RST_NMI, GPIO.OUT)
+GPIO.output(RST_NMI, GPIO.LOW)
+
+time.sleep(0.3)
+
 # data bus (input/output)
 D0 = 11  # GP17
 D1 = 12  # GP18
@@ -50,12 +57,6 @@ GPIO.setup(PortB_DATA_TAKEN, GPIO.OUT) # "data taken" output
 GPIO.setup(PortB_DATA_READY, GPIO.IN)  # "data ready" input
 GPIO.output([PortA_DATA_READY, PortB_DATA_TAKEN], GPIO.HIGH) # clear handshakes
 
-# 6809 processor control (output, active-high)
-RST_NMI = 24 # GP08
-GPIO.setup(RST_NMI, GPIO.OUT)
-GPIO.output(RST_NMI, GPIO.LOW)
-
-    
 # reset the 6809
 # GPIO.output(proc_control, GPIO.HIGH)
 # time.sleep(0.001)
@@ -70,7 +71,7 @@ GPIO.output(CS_handshake, GPIO.LOW)
 
 GPIO.output(CS_portB, GPIO.HIGH) # ensure port B is deselected, before we select port A
 GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
-GPIO.output(CS_portA, GPIO.LOW)  # enable IC1, to pass data from the bus to port A
+GPIO.output(CS_portA, GPIO.HIGH)  # enable IC1, to pass data from the bus to port A
 
 def bus_read():
     "Read the 8 bits of the data bus into a list"
@@ -135,46 +136,6 @@ def get_byte():
     # complete the handshake sequence
     GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
     
-    # convert bus_read()'s bit list to an integer
-    out = 0
-    for bit in input:
-        out = (out << 1) | bit
-        
-    return out
-
-def get_byte1():
-    # return None if no data ready on port B
-    if GPIO.HIGH == GPIO.input(PortB_DATA_READY):
-        return None
-    # Data ready, so read the bus. This assumes that the data
-    # bus is set for input, and that the port B chip select
-    # is active.
-    input = bus_read()
-    # handshake
-    # wait for data taken to clear (go HIGH), with timeout
-    if False:
-        GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
-        if GPIO.LOW == GPIO.input(PortB_DATA_READY):
-            start_time = time.time()
-            while GPIO.LOW == GPIO.input(PortB_DATA_READY):
-                if (time.time() - start_time) >= 1:
-                    print ("overdue")
-                    start_time = time.time()
-    else:
-        GPIO.add_event_detect(PortB_DATA_READY, GPIO.RISING)
-        assert(GPIO.LOW == GPIO.input(PortB_DATA_READY))
-        GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
-        if GPIO.LOW == GPIO.input(PortB_DATA_READY):
-            if True:
-                GPIO.wait_for_edge(PortB_DATA_READY, GPIO.RISING)
-            else:
-                while True:
-                    if GPIO.event_detected(PortB_DATA_READY):
-                        break
-        GPIO.remove_event_detect(PortB_DATA_READY)
-    
-    # complete the handshake sequence
-    GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
     # convert bus_read()'s bit list to an integer
     out = 0
     for bit in input:

@@ -125,17 +125,25 @@ def send_word(word):
     return word
 
 def get_byte():
-    while GPIO.HIGH == GPIO.input(PortB_DATA_READY): # ToDo: use wait for edge?
-        pass
-    
+    # return None if no data ready on port B
+    if GPIO.HIGH == GPIO.input(PortB_DATA_READY):
+        return None
+    # Data ready, so read the bus. This assumes that the data
+    # bus is set for input, and that the port B chip select
+    # is active.
     input = bus_read()
+    # handshake
     GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
-    
-    while GPIO.LOW == GPIO.input(PortB_DATA_READY): # ToDo: use wait for edge?
-        pass
-    
+    # wait for data taken to clear, with timeout
+    if GPIO.LOW == GPIO.input(PortB_DATA_READY):
+        start_time = time.time()
+        while GPIO.LOW == GPIO.input(PortB_DATA_READY):
+            if (time.time() - start_time) >= 1:
+                print ("overdue")
+                start_time = time.time()
+    # complete the handshake sequence
     GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
-
+    # convert bus_read()'s bit list to an integer
     out = 0
     for bit in input:
         out = (out << 1) | bit
@@ -154,7 +162,7 @@ def listen():
     while True:
         if time.time() > (my_time + 5):
             GPIO.output(RST_NMI, GPIO.HIGH)
-            time.sleep(0.000001333)
+            time.sleep(0.001)
             GPIO.output(RST_NMI, GPIO.LOW)
             print("blip")
             my_time = time.time()
@@ -199,9 +207,8 @@ def dload_exec_file(filename):
 
 # Main program starts here
 dload_exec_file("test1.ex9")
-    
-listen()
-print ("Done.")
-
-
-GPIO.cleanup()
+try:  
+    listen()
+except KeyboardInterrupt:
+    print ("Done.")
+    GPIO.cleanup()

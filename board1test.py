@@ -8,8 +8,6 @@ try:
 except RuntimeError:
     print("Error importing time")
     
-GPIO.cleanup()
-
 assert(GPIO.getmode() == None)
 
 GPIO.setmode(GPIO.BOARD); # use Pi connector pin numbering
@@ -126,6 +124,26 @@ def send_word(word):
 
 def get_byte():
     # return None if no data ready on port B
+    if False == GPIO.event_detected(PortB_DATA_READY):
+        return None
+    # Data ready, so read the bus. This assumes that the data
+    # bus is set for input, and that the port B chip select
+    # is active.
+    input = bus_read()
+    # handshake
+    GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # set data taken
+    # complete the handshake sequence
+    GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
+    
+    # convert bus_read()'s bit list to an integer
+    out = 0
+    for bit in input:
+        out = (out << 1) | bit
+        
+    return out
+
+def get_byte1():
+    # return None if no data ready on port B
     if GPIO.HIGH == GPIO.input(PortB_DATA_READY):
         return None
     # Data ready, so read the bus. This assumes that the data
@@ -133,14 +151,28 @@ def get_byte():
     # is active.
     input = bus_read()
     # handshake
-    GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
-    # wait for data taken to clear, with timeout
-    if GPIO.LOW == GPIO.input(PortB_DATA_READY):
-        start_time = time.time()
-        while GPIO.LOW == GPIO.input(PortB_DATA_READY):
-            if (time.time() - start_time) >= 1:
-                print ("overdue")
-                start_time = time.time()
+    # wait for data taken to clear (go HIGH), with timeout
+    if False:
+        GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
+        if GPIO.LOW == GPIO.input(PortB_DATA_READY):
+            start_time = time.time()
+            while GPIO.LOW == GPIO.input(PortB_DATA_READY):
+                if (time.time() - start_time) >= 1:
+                    print ("overdue")
+                    start_time = time.time()
+    else:
+        GPIO.add_event_detect(PortB_DATA_READY, GPIO.RISING)
+        assert(GPIO.LOW == GPIO.input(PortB_DATA_READY))
+        GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
+        if GPIO.LOW == GPIO.input(PortB_DATA_READY):
+            if True:
+                GPIO.wait_for_edge(PortB_DATA_READY, GPIO.RISING)
+            else:
+                while True:
+                    if GPIO.event_detected(PortB_DATA_READY):
+                        break
+        GPIO.remove_event_detect(PortB_DATA_READY)
+    
     # complete the handshake sequence
     GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
     # convert bus_read()'s bit list to an integer
@@ -206,6 +238,7 @@ def dload_exec_file(filename):
         dload_exec(load_addr, data, exec_addr)
 
 # Main program starts here
+GPIO.add_event_detect(PortB_DATA_READY, GPIO.FALLING)
 dload_exec_file("test1.ex9")
 try:  
     listen()

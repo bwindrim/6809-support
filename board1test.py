@@ -39,7 +39,7 @@ chip_selects = [CS0, CS1, CS2]
 GPIO.setup(chip_selects, GPIO.OUT)
 GPIO.output(chip_selects, GPIO.HIGH)
 CS_portA = CS1
-CS_portB = CS0
+CS_portB = CS0        # only port B drives the data bus
 CS_handshake = CS2
 
 # handshakes (active-low)
@@ -112,37 +112,55 @@ def bus_read():
     int8 = bus_read_int8()
     return [int(x) for x in '{:08b}'.format(int8)]
 
-def send_byte(int8):
+def send_bytes(out_bytes):
     "write a byte to Port A, with handshake, and read back from port B"
+    validate = False
+    
     # setup for output to port A
-    assert(int8 < 256)
     GPIO.output(CS_portB, GPIO.HIGH) # ensure port B is deselected, before we select port A
     GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
     GPIO.output(CS_portA, GPIO.LOW)  # enable IC1, to pass data from the bus to port A
 
-    output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
-    GPIO.output(data_bus, output)
-    GPIO.output(PortA_DATA_READY, GPIO.LOW)   # signal data ready
-    GPIO.output(PortA_DATA_READY, GPIO.HIGH)  # clear data ready
-        
-    # read back
-    # setup for input from port B
-    GPIO.output(CS_portA, GPIO.HIGH) # ensure port A is deselected before we select port B
-    GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
-    GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
-    
-    # read data from bus, compare output and input
-    input = bus_read()
-    if input != output:
-        print("output = ", output, "input = ", input)
-        
-    GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
-    GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
+    for int8 in out_bytes:
+        assert(int8 < 256)
+        output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
+        GPIO.output(data_bus, output)
+        GPIO.output(PortA_DATA_READY, GPIO.LOW)   # signal data ready
+            
+        while False == GPIO.event_detected(PortA_DATA_TAKEN):
+            pass
+
+        GPIO.output(PortA_DATA_READY, GPIO.HIGH)  # clear data ready
+
+        if validate:
+            while False == GPIO.event_detected(PortB_DATA_READY):
+                pass
+            
+            # read back
+            # setup for input from port B
+#             GPIO.output(CS_portA, GPIO.HIGH) # ensure port A is deselected before we select port B
+            GPIO.setup(data_bus, GPIO.IN)    # set data bus for input
+            GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
+            
+            # read data from bus, compare output and input
+            input = bus_read()
+            if input != output:
+                print("output = ", output, "input = ", input)
                 
-    GPIO.output(CS_portB, GPIO.HIGH) # disable IC0                
+            GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
+            GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
+                    
+            GPIO.output(CS_portB, GPIO.HIGH) # disable IC0                
+            GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
+
+    GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
+    GPIO.output(CS_portA, GPIO.HIGH)  # disable port A output
 
     return int8
 
+def send_byte(int8):
+    send_bytes(bytes([int8]))
+    
 def send_word(word):
     send_byte(word >> 8)
     send_byte(word & 0xFF)
@@ -193,9 +211,7 @@ def dload_exec(load_addr, data, exec_addr):
     send_byte(0xAA)
     send_word(load_addr)
     send_word(len(data))
-
-    for byte in data:
-        send_byte(byte)
+    send_bytes(data)
 
     send_word(exec_addr)
 
@@ -219,6 +235,7 @@ def dload_exec_file(filename):
         dload_exec(load_addr, data, exec_addr)
 
 # Main program starts here
+GPIO.add_event_detect(PortA_DATA_TAKEN, GPIO.FALLING)
 GPIO.add_event_detect(PortB_DATA_READY, GPIO.FALLING)
 dload_exec_file("test1.ex9")
 try:  

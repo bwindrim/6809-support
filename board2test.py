@@ -1,0 +1,225 @@
+try:
+    import RPi.GPIO as GPIO
+except RuntimeError:
+    print("Error importing RPi.GPIO")
+    
+assert(GPIO.getmode() == None)
+
+GPIO.setmode(GPIO.BOARD); # use Pi connector pin numbering
+
+# data bus (input/output)
+D0 = 11  # GP17
+D1 = 12  # GP18
+D2 = 13  # GP27
+D3 = 15  # GP22
+D4 = 16  # GP23
+D5 = 19  # GP10
+D6 = 21  # GP09
+D7 = 23  # GP11
+data_bus = [D7, D6, D5, D4, D3, D2, D1, D0]
+GPIO.setup(data_bus, GPIO.IN)
+
+# chip selects (output, active-low, pull-up)
+CS0 = 26 # GP07
+CS1 = 29 # GP05
+CS2 = 31 # GP06
+CS3 =  3 # GP02
+CS4 =  5 # GP03
+chip_selects = [CS0, CS1, CS2, CS3, CS4]
+GPIO.setup(chip_selects, GPIO.OUT)
+GPIO.output(chip_selects, GPIO.HIGH)
+CS_portA = CS1
+CS_portB = CS0
+CS_handshake = CS2
+CS_x_axis = CS3
+CS_y_axis = CS4
+
+# HCTL2000 control signals
+HCTL_CLK =  7 # GP04
+HCTL_RST = 40 # GP21
+hctl_controls = [HCTL_CLK, HCTL_RST]
+GPIO.setup(hctl_controls, GPIO.OUT)
+
+# mouse button inputs
+PB_1_2 = 35 # GP19
+PB_2_3 = 37 # GP26
+mouse_inputs = [PB_1_2, PB_2_3]
+GPIO.setup(mouse_inputs, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+# handshakes (active-low)
+CA1 = 32 # GP12 - output
+CA2 = 33 # GP13 - input
+CB1 = 36 # GP16 - output
+CB2 = 38 # GP20 - input
+PortA_DATA_READY = CA1
+PortA_DATA_TAKEN = CA2
+PortB_DATA_TAKEN = CB1
+PortB_DATA_READY = CB2 
+GPIO.setup(PortA_DATA_READY, GPIO.OUT) # "data ready" output
+GPIO.setup(PortA_DATA_TAKEN, GPIO.IN)  # "data taken" input
+GPIO.setup(PortB_DATA_TAKEN, GPIO.OUT) # "data taken" output
+GPIO.setup(PortB_DATA_READY, GPIO.IN)  # "data ready" input
+GPIO.output([PortA_DATA_READY, PortB_DATA_TAKEN], GPIO.HIGH) # clear handshakes
+
+# 6809 processor control (output, active-high)
+RST = 24 # GP08
+NMI = 22 # GP25
+proc_control = [RST, NMI]
+GPIO.setup(proc_control, GPIO.OUT)
+GPIO.output(proc_control, GPIO.LOW)
+
+# setup for output to port A
+GPIO.output(CS_handshake, GPIO.LOW)       # enable IC2, to pass handshake signals to/from target
+GPIO.output(CS_portB, GPIO.HIGH) # ensure port B is deselected, before we select port A
+GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
+GPIO.output(CS_portA, GPIO.LOW)  # enable IC1, to pass data from the bus to port A
+
+def bus_read():
+    "Read the 8 bits of the data bus into a list"
+    B0 = GPIO.input(D0)
+    B1 = GPIO.input(D1)
+    B2 = GPIO.input(D2)
+    B3 = GPIO.input(D3)
+    B4 = GPIO.input(D4)
+    B5 = GPIO.input(D5)
+    B6 = GPIO.input(D6)
+    B7 = GPIO.input(D7)
+    
+    return [B7, B6, B5, B4, B3, B2, B1, B0]
+
+
+def send_byte(int8):
+    "write a byte to Port A, with handshake, and read back from port B"
+    # setup for output to port A
+    assert(int8 < 256)
+    GPIO.output(CS_portB, GPIO.HIGH) # ensure port B is deselected, before we select port A
+    GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
+    GPIO.output(CS_portA, GPIO.LOW)  # enable IC1, to pass data from the bus to port A
+
+    output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
+    GPIO.output(data_bus, output)
+    GPIO.output(PortA_DATA_READY, GPIO.LOW)   # signal data ready
+    GPIO.output(PortA_DATA_READY, GPIO.HIGH)  # clear data ready
+        
+    # read back
+    # setup for input from port B
+    GPIO.output(CS_portA, GPIO.HIGH) # ensure port A is deselected before we select port B
+    GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
+    GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
+    
+    # read data from bus, compare output and input
+    input = bus_read()
+    if input != output:
+        print("output = ", output, "input = ", input)
+        
+    GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
+    GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
+                
+    GPIO.output(CS_portB, GPIO.HIGH) # disable IC0                
+
+    return int8
+
+def send_word(word):
+    send_byte(word >> 8)
+    send_byte(word & 0xFF)
+    return word
+
+def get_byte():
+    while GPIO.HIGH == GPIO.input(PortB_DATA_READY): # ToDo: use wait for edge?
+        pass
+    
+    input = bus_read()
+    GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
+    
+    while GPIO.LOW == GPIO.input(PortB_DATA_READY): # ToDo: use wait for edge?
+        pass
+    
+    GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
+
+    out = 0
+    for bit in input:
+        out = (out << 1) | bit
+        
+    return out
+
+def listen():
+    print("Listening...")
+    # setup for input from port B
+    GPIO.output(CS_portA, GPIO.HIGH) # ensure port A is deselected before we select port B
+    GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
+    GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
+
+    while True:
+        int8 = get_byte()
+        
+        if None != int8:
+#             print ("byte = ", hex(int8), " char = ", chr(int8))
+            print(chr(int8), end='')
+            
+    return
+
+def dload_exec(load_addr, data, exec_addr):
+    "Download bytes and execute specified address - not necessarily witin the download"
+    send_byte(0xAA)
+    send_word(load_addr)
+    send_word(len(data))
+
+    for byte in data:
+        send_byte(byte)
+
+    send_word(exec_addr)
+
+def dload_exec_file(filename):
+    "Download and execute the specified file"
+    with open (filename, 'rb') as f:
+        # Get load address
+        load_addr = int.from_bytes(f.read(2), "big")
+        # Get data length
+        length = int.from_bytes(f.read(2), "big")
+        # Get data
+        data = f.read(length)
+        assert(length == len(data))
+        # Get exec address
+        exec_addr = int.from_bytes(f.read(2), "big")
+
+        print ("load address = ", hex(load_addr),
+               "length = ", length,
+               "exec address = ", hex(exec_addr));
+        
+        dload_exec(load_addr, data, exec_addr)
+
+def test1():
+    # Main program starts here
+    dload_exec_file("newtick-new.ex9")
+        
+    listen()
+    print ("Done.")
+
+def test2():
+    prev = [1, 1]
+    while True:
+        buttons = [GPIO.input(PB_1_2), GPIO.input(PB_2_3)]
+        if buttons != prev:
+            print ("buttons =", buttons)
+            prev = buttons
+
+def test3():
+    GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
+    GPIO.output(HCTL_RST, GPIO.LOW)  # reset the HCTL2000s
+    GPIO.output(HCTL_RST, GPIO.HIGH)
+    GPIO.output(chip_selects, GPIO.HIGH)
+    GPIO.output(CS_x_axis, GPIO.LOW) # select the x-axis HCTL2000
+    
+    pwm = GPIO.PWM(HCTL_CLK, 10000)
+    pwm.start(50) # 50% duty cycle
+    
+    prev = bus_read()
+    while True:
+        input = bus_read()
+        
+        if input != prev:
+            print ("input =", input)
+            prev = input
+            
+test3()
+GPIO.cleanup()

@@ -141,17 +141,21 @@ def get_bytes():
         # Data ready, so read the bus and append to in_bytes.
         # This assumes that the data bus is set for input,
         # and that the port B chip select is active.
-        in_bytes.append(bus_read_int8())
+        int8 = bus_read_int8()
         # Pulse PortB_DATA_TAKEN (CB1) active low.
         # This will set PortB_DATA_READY (CB2) high immediately,
         # so if we see it low again at the top of the loop then it's a new byte.
         GPIO.output(PortB_DATA_TAKEN, GPIO.LOW)
+        in_bytes.append(int8)
+        # delay loop to give the 6809 time to send the next byte (if any)
+        for i in range(150):
+            pass
         GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH)
         
     return in_bytes
 
 def listen():
-    "Wait for bytes from the 6809 and output then to the console"
+    "Wait for bytes from the 6809 and output them to the console"
     print("Listening...")
     # setup for input from port B
     GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
@@ -160,17 +164,18 @@ def listen():
     my_time = time.time()
     
     while True:
-        if time.time() > (my_time + 5):
-#             GPIO.output(RST_NMI, GPIO.HIGH)
-            time.sleep(0.1)
-#             GPIO.output(RST_NMI, GPIO.LOW)
-            print("blip")
-            my_time = time.time()
-            
+#         if time.time() > (my_time + 5):
+# #             GPIO.output(RST_NMI, GPIO.HIGH)
+#             time.sleep(0.1)
+# #             GPIO.output(RST_NMI, GPIO.LOW)
+#             print("blip")
+#             my_time = time.time()
+#             
         in_bytes = get_bytes()
-        
+#         assert(len(in_bytes) <= 1)
         if in_bytes:
-            print(str(in_bytes, encoding='utf-8'), end='')
+#             print("(", len(in_bytes), ")", str(in_bytes, encoding='utf-8'), sep='', end='')
+             print(str(in_bytes, encoding='utf-8'), end='')
             
     return
 

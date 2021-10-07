@@ -57,30 +57,12 @@ GPIO.setup(PortB_DATA_TAKEN, GPIO.OUT) # "data taken" output
 GPIO.setup(PortB_DATA_READY, GPIO.IN)  # "data ready" input
 GPIO.output([PortA_DATA_READY, PortB_DATA_TAKEN], GPIO.HIGH) # clear handshakes
 
-# reset the 6809
-# GPIO.output(proc_control, GPIO.HIGH)
-# time.sleep(0.001)
-# GPIO.output(proc_control, GPIO.LOW)
-
 # setup for output to port A
 GPIO.output(CS_handshake, GPIO.LOW)       # enable IC2, to pass handshake signals to/from target
 time.sleep(0.000001)
 GPIO.output(CS_handshake, GPIO.HIGH)
 time.sleep(0.000001)
 GPIO.output(CS_handshake, GPIO.LOW)
-
-def bus_read_1():
-    "Read the 8 bits of the data bus into a list"
-    B0 = GPIO.input(D0)
-    B1 = GPIO.input(D1)
-    B2 = GPIO.input(D2)
-    B3 = GPIO.input(D3)
-    B4 = GPIO.input(D4)
-    B5 = GPIO.input(D5)
-    B6 = GPIO.input(D6)
-    B7 = GPIO.input(D7)
-    
-    return [B7, B6, B5, B4, B3, B2, B1, B0]
 
 def bus_read_int8():
     "Read the 8 bits of the data bus into an integer"
@@ -104,7 +86,7 @@ def bus_read_int8():
         )
 
 def bus_read():
-    "Read the 8 bits of the data bus into a list"
+    "Read the 8 bits of the data bus a list"
     int8 = bus_read_int8()
     return [int(x) for x in '{:08b}'.format(int8)]
 
@@ -117,7 +99,7 @@ def send_bytes(out_bytes):
         output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
         GPIO.output(data_bus, output)
         GPIO.output(PortA_DATA_READY, GPIO.LOW)   # signal data ready
-            
+        # wait for the 6809 to signal data taken
         while False == GPIO.event_detected(PortA_DATA_TAKEN):
             pass
 
@@ -145,32 +127,31 @@ def send_bytes(out_bytes):
 
     return int8
 
-def send_byte(int8):
-    send_bytes(bytes([int8]))
-    
 def send_word(word):
-    send_byte(word >> 8)
-    send_byte(word & 0xFF)
+    "Helper function to send a 16-bit integer, in hi-lo order"
+    send_bytes(word.to_bytes(2, byteorder='big'))
     return word
 
 def get_bytes():
-    in_bytes = bytearray()
+    "read a (possibly empty) sequence of bytes from the 6809. Non-blocking."
+    in_bytes = bytearray() # return value, possibly empty
 
-# return None if no data ready on port B
+    # check for data ready on port B (active low)
     while GPIO.LOW == GPIO.input(PortB_DATA_READY):
-        # Data ready, so read the bus. This assumes that the data
-        # bus is set for input, and that the port B chip select
-        # is active.
+        # Data ready, so read the bus and append to in_bytes.
+        # This assumes that the data bus is set for input,
+        # and that the port B chip select is active.
         in_bytes.append(bus_read_int8())
-        # Pulse PortB_DATA_TAKEN (CB1)
+        # Pulse PortB_DATA_TAKEN (CB1) active low.
         # This will set PortB_DATA_READY (CB2) high immediately,
         # so if we see it low again at the top of the loop then it's a new byte.
-        GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # set data taken
-        GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
+        GPIO.output(PortB_DATA_TAKEN, GPIO.LOW)
+        GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH)
         
     return in_bytes
 
 def listen():
+    "Wait for bytes from the 6809 and output then to the console"
     print("Listening...")
     # setup for input from port B
     GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
@@ -200,14 +181,14 @@ def dload_exec(load_addr, data, exec_addr):
     GPIO.setup(data_bus, GPIO.OUT)   # ...before setting the data bus for output
     GPIO.output(CS_portA, GPIO.LOW)  # drive data from the bus to port A
 
-    send_byte(0xAA)
-    send_word(load_addr)
-    send_word(len(data))
-    send_bytes(data)
-
-    send_word(exec_addr)
-    GPIO.output(CS_portA, GPIO.HIGH) # and stop driving port A
-    GPIO.setup(data_bus, GPIO.IN)    # return the data bus to input
+    send_bytes(b'\xAA')      # send the ddownload prefix byte
+    send_word(load_addr)     # send the destination addess
+    send_word(len(data))     # send the data length
+    send_bytes(data)         # send the data
+    send_word(exec_addr)     # send the execution address
+    
+    GPIO.output(CS_portA, GPIO.HIGH) # stop driving port A
+    GPIO.setup(data_bus, GPIO.IN)    # and return the data bus to input
 
 
 def dload_exec_file(filename):
@@ -231,9 +212,9 @@ def dload_exec_file(filename):
 
 # Main program starts here
 GPIO.add_event_detect(PortA_DATA_TAKEN, GPIO.FALLING)
-# GPIO.add_event_detect(PortB_DATA_READY, GPIO.FALLING)
-dload_exec_file("test1.ex9")
+
 try:  
+    dload_exec_file("test1.ex9")
     listen()
 except KeyboardInterrupt:
     print ("Done.")

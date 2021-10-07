@@ -17,7 +17,7 @@ RST_NMI = 24 # GP08
 GPIO.setup(RST_NMI, GPIO.OUT)
 GPIO.output(RST_NMI, GPIO.LOW)
 
-time.sleep(0.3)
+time.sleep(0.3) # give the 6809 tine to come out of reset (?)
 
 # data bus (input/output)
 D0 = 11  # GP17
@@ -73,7 +73,7 @@ GPIO.output(CS_portB, GPIO.HIGH) # ensure port B is deselected, before we select
 GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
 GPIO.output(CS_portA, GPIO.HIGH)  # enable IC1, to pass data from the bus to port A
 
-def bus_read():
+def bus_read_1():
     "Read the 8 bits of the data bus into a list"
     B0 = GPIO.input(D0)
     B1 = GPIO.input(D1)
@@ -86,6 +86,31 @@ def bus_read():
     
     return [B7, B6, B5, B4, B3, B2, B1, B0]
 
+def bus_read_int8():
+    "Read the 8 bits of the data bus into an integer"
+    B0 = GPIO.input(D0)
+    B1 = GPIO.input(D1)
+    B2 = GPIO.input(D2)
+    B3 = GPIO.input(D3)
+    B4 = GPIO.input(D4)
+    B5 = GPIO.input(D5)
+    B6 = GPIO.input(D6)
+    B7 = GPIO.input(D7)
+    
+    return (B0 |
+            B1 << 1 |
+            B2 << 2 |
+            B3 << 3 |
+            B4 << 4 |
+            B5 << 5 |
+            B6 << 6 |
+            B7 << 7
+        )
+
+def bus_read():
+    "Read the 8 bits of the data bus into a list"
+    int8 = bus_read_int8()
+    return [int(x) for x in '{:08b}'.format(int8)]
 
 def send_byte(int8):
     "write a byte to Port A, with handshake, and read back from port B"
@@ -123,48 +148,43 @@ def send_word(word):
     send_byte(word & 0xFF)
     return word
 
-def get_byte():
+def get_bytes():
+    in_bytes = bytearray()
     # return None if no data ready on port B
-    if False == GPIO.event_detected(PortB_DATA_READY):
-        return None
-    # Data ready, so read the bus. This assumes that the data
-    # bus is set for input, and that the port B chip select
-    # is active.
-    input = bus_read()
-    # handshake
-    GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # set data taken
-    # complete the handshake sequence
-    GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
-    
-    # convert bus_read()'s bit list to an integer
-    out = 0
-    for bit in input:
-        out = (out << 1) | bit
+    while GPIO.event_detected(PortB_DATA_READY):
+        # Data ready, so read the bus. This assumes that the data
+        # bus is set for input, and that the port B chip select
+        # is active.
+        GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
+        in_bytes.append(bus_read_int8())
+        GPIO.output(CS_portB, GPIO.HIGH)  # disable IC0
+        # handshake
+        GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # set data taken
+        # complete the handshake sequence
+        GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
         
-    return out
+    return in_bytes
 
 def listen():
     print("Listening...")
     # setup for input from port B
     GPIO.output(CS_portA, GPIO.HIGH) # ensure port A is deselected before we select port B
     GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
-    GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
 
     my_time = time.time()
     
     while True:
         if time.time() > (my_time + 5):
-            GPIO.output(RST_NMI, GPIO.HIGH)
-            time.sleep(0.001)
-            GPIO.output(RST_NMI, GPIO.LOW)
+#             GPIO.output(RST_NMI, GPIO.HIGH)
+            time.sleep(0.1)
+#             GPIO.output(RST_NMI, GPIO.LOW)
             print("blip")
             my_time = time.time()
             
-        int8 = get_byte()
+        in_bytes = get_bytes()
         
-        if None != int8:
-#             print ("byte = ", hex(int8), " char = ", chr(int8))
-            print(chr(int8), end='')
+        if in_bytes:
+            print(str(in_bytes, encoding='utf-8'), end='')
             
     return
 

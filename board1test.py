@@ -8,14 +8,14 @@ try:
 except RuntimeError:
     print("Error importing time")
     
-assert(GPIO.getmode() == None)
+assert GPIO.getmode() == None
 
 GPIO.setmode(GPIO.BOARD); # use Pi connector pin numbering
 
 # 6809 processor control (output, active-high)
-RST_NMI = 24 # GP08
-GPIO.setup(RST_NMI, GPIO.OUT)
-GPIO.output(RST_NMI, GPIO.LOW)
+NMI = 24 # GP08
+GPIO.setup(NMI, GPIO.OUT)
+GPIO.output(NMI, GPIO.LOW) # set NMI low before we take the 6809 out of reset
 
 # data bus (input/output)
 D0 = 11  # GP17
@@ -27,6 +27,7 @@ D5 = 19  # GP10
 D6 = 21  # GP09
 D7 = 23  # GP11
 data_bus = [D7, D6, D5, D4, D3, D2, D1, D0]
+bus_owner = None
 GPIO.setup(data_bus, GPIO.IN)
 
 # chip selects (output, active-low, pull-up)
@@ -35,7 +36,7 @@ CS1 = 29 # GP05
 CS2 = 31 # GP06
 chip_selects = [CS0, CS1, CS2]
 GPIO.setup(chip_selects, GPIO.OUT)
-GPIO.output(chip_selects, GPIO.HIGH)
+GPIO.output(chip_selects, GPIO.HIGH) # setting CS2 high resets 6809
 CS_portA = CS1
 CS_portB = CS0        # only port B drives the data bus
 CS_handshake = CS2
@@ -55,15 +56,11 @@ GPIO.setup(PortB_DATA_TAKEN, GPIO.OUT) # "data taken" output
 GPIO.setup(PortB_DATA_READY, GPIO.IN)  # "data ready" input
 GPIO.output([PortA_DATA_READY, PortB_DATA_TAKEN], GPIO.HIGH) # clear handshakes
 
-time.sleep(0.3) # give the 6809 tine to reset
-# setup for output to port A
-GPIO.output(CS_handshake, GPIO.LOW)       # enable IC2, to pass handshake signals to/from target
-# time.sleep(0.000001)
-# GPIO.output(CS_handshake, GPIO.HIGH)
-# time.sleep(0.000001)
-# GPIO.output(CS_handshake, GPIO.LOW)
-
-time.sleep(0.3) # give the 6809 tine to come out of reset (?)
+time.sleep(0.3) # give the 6809 time to reset, after CS2 going high above
+# Enable IC2 to pass handshake signals to/from target. This also
+# takes the 6809 out of reset.
+GPIO.output(CS_handshake, GPIO.LOW)
+time.sleep(0.3) # give the 6809 time to come out of reset (?)
 
 def bus_read_int8():
     "Read the 8 bits of the data bus into an integer"
@@ -92,15 +89,19 @@ def bus_read():
     return [int(x) for x in '{:08b}'.format(int8)]
 
 def send_bytes(out_bytes):
-    "write a byte to Port A, with handshake, and read back from port B"
-    validate = False
+    "write a series of bytes to Port A, with handshake, and read back from port B"
+    global bus_owner # we're going to be changing the bus owner
+    validate = True
     
     for int8 in out_bytes:
-        assert(int8 < 256)
+        assert int8 < 256
         output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
+        assert bus_owner == data_bus
         GPIO.output(data_bus, output)
         GPIO.output(PortA_DATA_READY, GPIO.LOW)   # signal data ready
-        # wait for the 6809 to signal data taken
+        # Wait for the 6809 to signal data taken.
+        # we have to use event_detected() here because the 6522 is still in strobe mode,
+        # we we'll miss the low if we just poll for it.
         while False == GPIO.event_detected(PortA_DATA_TAKEN):
             pass
 
@@ -112,6 +113,8 @@ def send_bytes(out_bytes):
             
             # read back
             # setup for input from port B
+            assert bus_owner == data_bus
+            bus_owner = CS_portB
             GPIO.setup(data_bus, GPIO.IN)    # set data bus for input
             GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
             
@@ -120,12 +123,13 @@ def send_bytes(out_bytes):
             if input != output:
                 print("output = ", output, "input = ", input)
                 
-            GPIO.output(PortB_DATA_TAKEN, GPIO.LOW) # signal data taken
-            GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH) # clear data taken
-                    
+            # Note that we don't signal "data taken" during download validation,
+            # as the 6809 is in strobe mode and isn't looking for it. Also,
+            # signalling data taken was causing us to miss the first byte sent
+            # by the downloaded program.
             GPIO.output(CS_portB, GPIO.HIGH) # disable IC0                
             GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
-
+            bus_owner = data_bus
     return int8
 
 def send_word(word):
@@ -135,6 +139,7 @@ def send_word(word):
 
 def get_bytes():
     "read a (possibly empty) sequence of bytes from the 6809. Non-blocking."
+    assert bus_owner == CS_portB
     in_bytes = bytearray() # return value, possibly empty
 
     # check for data ready on port B (active low)
@@ -157,8 +162,11 @@ def get_bytes():
 
 def listen():
     "Wait for bytes from the 6809 and output them to the console"
+    global bus_owner # we're going to be changing the bus owner
     print("Listening...")
     # setup for input from port B
+    assert bus_owner == None
+    bus_owner = CS_portB
     GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
     GPIO.output(CS_portB, GPIO.LOW)  # drive the data bus from port B
 
@@ -166,23 +174,27 @@ def listen():
     
     while True:
         if time.time() > (my_time + 5):
-            GPIO.output(RST_NMI, GPIO.HIGH)
+            GPIO.output(NMI, GPIO.HIGH)
             time.sleep(0.000001)
-            GPIO.output(RST_NMI, GPIO.LOW)
-#             print("blip")
+            GPIO.output(NMI, GPIO.LOW)
             my_time = time.time()
             
         in_bytes = get_bytes()
-#         assert(len(in_bytes) <= 1)
         if in_bytes:
-#             print("(", len(in_bytes), ")", str(in_bytes, encoding='utf-8'), sep='', end='')
              print(str(in_bytes, encoding='utf-8'), end='')
             
+    GPIO.output(CS_portB, GPIO.HIGH) # disable IC0                
+#     GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
+    bus_owner = None
+
     return
 
 def dload_exec(load_addr, data, exec_addr):
     "Download bytes and execute specified address - not necessarily within the download"
+    global bus_owner # we're going to be changing the bus owner
     # setup for output to port A
+    assert bus_owner == None
+    bus_owner = data_bus
     GPIO.output(CS_portB, GPIO.HIGH) # ensure port B isn't driving the data bus...
     GPIO.setup(data_bus, GPIO.OUT)   # ...before setting the data bus for output
     GPIO.output(CS_portA, GPIO.LOW)  # drive data from the bus to port A
@@ -195,10 +207,12 @@ def dload_exec(load_addr, data, exec_addr):
     
     GPIO.output(CS_portA, GPIO.HIGH) # stop driving port A
     GPIO.setup(data_bus, GPIO.IN)    # and return the data bus to input
+    bus_owner = None
 
 
 def dload_exec_file(filename):
     "Download and execute the specified file"
+    assert bus_owner == None
     with open (filename, 'rb') as f:
         # Get load address
         load_addr = int.from_bytes(f.read(2), "big")
@@ -206,7 +220,7 @@ def dload_exec_file(filename):
         length = int.from_bytes(f.read(2), "big")
         # Get data
         data = f.read(length)
-        assert(length == len(data))
+        assert length == len(data)
         # Get exec address
         exec_addr = int.from_bytes(f.read(2), "big")
 
@@ -218,6 +232,7 @@ def dload_exec_file(filename):
 
 # Main program starts here
 GPIO.add_event_detect(PortA_DATA_TAKEN, GPIO.FALLING)
+GPIO.add_event_detect(PortB_DATA_READY, GPIO.FALLING) # only needed for readback validation
 
 try:  
     dload_exec_file("test1.ex9")

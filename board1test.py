@@ -17,8 +17,6 @@ RST_NMI = 24 # GP08
 GPIO.setup(RST_NMI, GPIO.OUT)
 GPIO.output(RST_NMI, GPIO.LOW)
 
-time.sleep(0.3) # give the 6809 tine to come out of reset (?)
-
 # data bus (input/output)
 D0 = 11  # GP17
 D1 = 12  # GP18
@@ -57,12 +55,15 @@ GPIO.setup(PortB_DATA_TAKEN, GPIO.OUT) # "data taken" output
 GPIO.setup(PortB_DATA_READY, GPIO.IN)  # "data ready" input
 GPIO.output([PortA_DATA_READY, PortB_DATA_TAKEN], GPIO.HIGH) # clear handshakes
 
+time.sleep(0.3) # give the 6809 tine to reset
 # setup for output to port A
 GPIO.output(CS_handshake, GPIO.LOW)       # enable IC2, to pass handshake signals to/from target
-time.sleep(0.000001)
-GPIO.output(CS_handshake, GPIO.HIGH)
-time.sleep(0.000001)
-GPIO.output(CS_handshake, GPIO.LOW)
+# time.sleep(0.000001)
+# GPIO.output(CS_handshake, GPIO.HIGH)
+# time.sleep(0.000001)
+# GPIO.output(CS_handshake, GPIO.LOW)
+
+time.sleep(0.3) # give the 6809 tine to come out of reset (?)
 
 def bus_read_int8():
     "Read the 8 bits of the data bus into an integer"
@@ -164,13 +165,13 @@ def listen():
     my_time = time.time()
     
     while True:
-#         if time.time() > (my_time + 5):
-# #             GPIO.output(RST_NMI, GPIO.HIGH)
-#             time.sleep(0.1)
-# #             GPIO.output(RST_NMI, GPIO.LOW)
+        if time.time() > (my_time + 5):
+            GPIO.output(RST_NMI, GPIO.HIGH)
+            time.sleep(0.000001)
+            GPIO.output(RST_NMI, GPIO.LOW)
 #             print("blip")
-#             my_time = time.time()
-#             
+            my_time = time.time()
+            
         in_bytes = get_bytes()
 #         assert(len(in_bytes) <= 1)
         if in_bytes:

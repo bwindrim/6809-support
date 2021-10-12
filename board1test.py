@@ -1,3 +1,6 @@
+import sys
+import os
+
 try:
     import RPi.GPIO as GPIO
 except RuntimeError:
@@ -8,6 +11,9 @@ try:
 except RuntimeError:
     print("Error importing time")
     
+file_list = sys.argv        # get the argument list
+prog_name = file_list.pop(0) # pop the script name off the head of the list
+
 assert GPIO.getmode() == None
 
 GPIO.setmode(GPIO.BOARD); # use Pi connector pin numbering
@@ -100,13 +106,14 @@ def send_bytes(out_bytes):
         GPIO.output(data_bus, output)
         GPIO.output(PortA_DATA_READY, GPIO.LOW)   # signal data ready
         # Wait for the 6809 to signal data taken.
-        # we have to use event_detected() here because the 6522 is still in strobe mode,
-        # we we'll miss the low if we just poll for it.
+        # We have to use event_detected() here because the 6522 is still in
+        # strobe mode so we we'll miss the low state if we just poll for it.
         while False == GPIO.event_detected(PortA_DATA_TAKEN):
             pass
 
         GPIO.output(PortA_DATA_READY, GPIO.HIGH)  # clear data ready
 
+        # Optional readback validation of sent byte
         if validate:
             while False == GPIO.event_detected(PortB_DATA_READY):
                 pass
@@ -114,8 +121,8 @@ def send_bytes(out_bytes):
             # read back
             # setup for input from port B
             assert bus_owner == data_bus
+            GPIO.setup(data_bus, GPIO.IN)  # set data bus for input, implicit change of bus_owner to None
             bus_owner = CS_portB
-            GPIO.setup(data_bus, GPIO.IN)    # set data bus for input
             GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
             
             # read data from bus, compare output and input
@@ -235,7 +242,7 @@ GPIO.add_event_detect(PortA_DATA_TAKEN, GPIO.FALLING)
 GPIO.add_event_detect(PortB_DATA_READY, GPIO.FALLING) # only needed for readback validation
 
 try:  
-    dload_exec_file("test1.ex9")
+    dload_exec_file(file_list[0])
     listen()
 except KeyboardInterrupt:
     print ("Done.")

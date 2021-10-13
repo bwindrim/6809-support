@@ -40,12 +40,28 @@ GPIO.setup(data_bus, GPIO.IN)
 CS0 = 26 # GP07
 CS1 = 29 # GP05
 CS2 = 31 # GP06
-chip_selects = [CS0, CS1, CS2]
+CS3 =  3 # GP02
+CS4 =  5 # GP03
+chip_selects = [CS0, CS1, CS2, CS3, CS4]
 GPIO.setup(chip_selects, GPIO.OUT)
 GPIO.output(chip_selects, GPIO.HIGH) # setting CS2 high resets 6809
 CS_portA = CS1
 CS_portB = CS0        # only port B drives the data bus
 CS_handshake = CS2
+CS_x_axis = CS3
+CS_y_axis = CS4
+
+# HCTL2000 control signals
+HCTL_CLK =  7 # GP04
+HCTL_RST = 40 # GP21
+hctl_controls = [HCTL_CLK, HCTL_RST]
+GPIO.setup(hctl_controls, GPIO.OUT)
+
+# mouse button inputs
+PB_1_2 = 35 # GP19
+PB_2_3 = 37 # GP26
+mouse_inputs = [PB_1_2, PB_2_3]
+GPIO.setup(mouse_inputs, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
 # handshakes (active-low)
 CA1 = 32 # GP12 - output
@@ -67,6 +83,13 @@ time.sleep(0.3) # give the 6809 time to reset, after CS2 going high above
 # takes the 6809 out of reset.
 GPIO.output(CS_handshake, GPIO.LOW)
 time.sleep(0.3) # give the 6809 time to come out of reset (?)
+
+# Reset both HCTL-2000s
+GPIO.output(HCTL_RST, GPIO.LOW)  # reset the HCTL2000s
+GPIO.output(HCTL_RST, GPIO.HIGH)
+# Start the clock to the HCTL-2000s 
+pwm = GPIO.PWM(HCTL_CLK, 10000)
+pwm.start(50) # 50% duty cycle
 
 def bus_read_int8():
     "Read the 8 bits of the data bus into an integer"
@@ -146,7 +169,12 @@ def send_word(word):
 
 def get_bytes():
     "read a (possibly empty) sequence of bytes from the 6809. Non-blocking."
-    assert bus_owner == CS_portB
+    global bus_owner
+    # setup for input from port B
+    assert bus_owner == None
+    bus_owner = CS_portB
+    GPIO.output(CS_portB, GPIO.LOW)  # drive the data bus from port B
+
     in_bytes = bytearray() # return value, possibly empty
 
     # check for data ready on port B (active low)
@@ -164,18 +192,17 @@ def get_bytes():
         for i in range(150):
             pass
         GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH)
-        
+
+    GPIO.output(CS_portB, GPIO.HIGH)  # stop driving the data bus from port B
+    bus_owner = None
+    
     return in_bytes
 
 def listen():
     "Wait for bytes from the 6809 and output them to the console"
-    global bus_owner # we're going to be changing the bus owner
-    print("Listening...")
-    # setup for input from port B
     assert bus_owner == None
-    bus_owner = CS_portB
+    print("Listening...")
     GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
-    GPIO.output(CS_portB, GPIO.LOW)  # drive the data bus from port B
 
     my_time = time.time()
     
@@ -189,11 +216,11 @@ def listen():
         in_bytes = get_bytes()
         if in_bytes:
              print(str(in_bytes, encoding='utf-8'), end='')
+             
+        chk_buttons()
+        chk_x()
+        chk_y()
             
-    GPIO.output(CS_portB, GPIO.HIGH) # disable IC0                
-#     GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
-    bus_owner = None
-
     return
 
 def dload_exec(load_addr, data, exec_addr):
@@ -236,6 +263,50 @@ def dload_exec_file(filename):
                "exec address = ", hex(exec_addr));
         
         dload_exec(load_addr, data, exec_addr)
+
+prev_buttons = [1, 1]
+def chk_buttons():
+    global prev_buttons
+    buttons = [GPIO.input(PB_1_2), GPIO.input(PB_2_3)]
+    if buttons != prev_buttons:
+        print ("buttons =", buttons)
+        prev_buttons = buttons
+
+prev_x = [0, 0, 0, 0, 0, 0, 0, 0]
+
+def chk_x():
+    global bus_owner
+    global prev_x
+    assert bus_owner == None
+    bus_owner = CS_x_axis
+    GPIO.output(bus_owner, GPIO.LOW) # select the x-axis HCTL2000
+
+    input = bus_read()
+    
+    if input != prev_x:
+        print ("X input =", input)
+        prev_x = input
+        
+    GPIO.output(bus_owner, GPIO.HIGH) # deselect the x-axis HCTL2000
+    bus_owner = None
+
+prev_y = [0, 0, 0, 0, 0, 0, 0, 0]
+
+def chk_y():
+    global bus_owner
+    global prev_y
+    assert bus_owner == None
+    bus_owner = CS_y_axis
+    GPIO.output(bus_owner, GPIO.LOW) # select the x-axis HCTL2000
+
+    input = bus_read()
+    
+    if input != prev_y:
+        print ("Y input =", input)
+        prev_y = input
+        
+    GPIO.output(bus_owner, GPIO.HIGH) # deselect the x-axis HCTL2000
+    bus_owner = None
 
 # Main program starts here
 GPIO.add_event_detect(PortA_DATA_TAKEN, GPIO.FALLING)

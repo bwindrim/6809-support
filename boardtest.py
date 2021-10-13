@@ -33,8 +33,6 @@ D5 = 19  # GP10
 D6 = 21  # GP09
 D7 = 23  # GP11
 data_bus = [D7, D6, D5, D4, D3, D2, D1, D0]
-bus_owner = None
-GPIO.setup(data_bus, GPIO.IN)
 
 # chip selects (output, active-low, pull-up)
 CS0 = 26 # GP07
@@ -91,6 +89,36 @@ GPIO.output(HCTL_RST, GPIO.HIGH)
 pwm = GPIO.PWM(HCTL_CLK, 10000)
 pwm.start(50) # 50% duty cycle
 
+bus_owner = None
+bus_direction = GPIO.IN
+GPIO.setup(data_bus, bus_direction)
+
+def claim_bus(cs, dir):
+    "Acquire exclusive use of the data bus, for a particular chip select"
+    global bus_owner
+    global bus_direction
+    assert bus_owner == None
+    bus_owner = cs
+    GPIO.output(bus_owner, GPIO.LOW)  # enable the selected chip
+    
+    if bus_direction != dir:
+        bus_direction = dir
+        GPIO.setup(data_bus, bus_direction)
+
+def release_bus(cs):
+    "Release the previous exclusive use of the data bus"
+    global bus_owner
+    global bus_direction
+    assert bus_owner != None
+    assert bus_owner == cs
+    GPIO.output(bus_owner, GPIO.HIGH)  # disable the current owning chip
+    bus_owner = None
+    
+    if bus_direction != GPIO.IN:
+        bus_direction = GPIO.IN
+        GPIO.setup(data_bus, bus_direction)
+        
+    
 def bus_read_int8():
     "Read the 8 bits of the data bus into an integer"
     B0 = GPIO.input(D0)
@@ -119,13 +147,11 @@ def bus_read():
 
 def send_bytes(out_bytes):
     "write a series of bytes to Port A, with handshake, and read back from port B"
-    global bus_owner # we're going to be changing the bus owner
     validate = True
     
     for int8 in out_bytes:
         assert int8 < 256
         output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
-        assert bus_owner == data_bus
         GPIO.output(data_bus, output)
         GPIO.output(PortA_DATA_READY, GPIO.LOW)   # signal data ready
         # Wait for the 6809 to signal data taken.
@@ -143,10 +169,8 @@ def send_bytes(out_bytes):
             
             # read back
             # setup for input from port B
-            assert bus_owner == data_bus
-            GPIO.setup(data_bus, GPIO.IN)  # set data bus for input, implicit change of bus_owner to None
-            bus_owner = CS_portB
-            GPIO.output(CS_portB, GPIO.LOW)  # enable IC0, to pass data from port B to the bus
+            release_bus(CS_portA)
+            claim_bus(CS_portB, GPIO.IN)
             
             # read data from bus, compare output and input
             input = bus_read()
@@ -157,9 +181,8 @@ def send_bytes(out_bytes):
             # as the 6809 is in strobe mode and isn't looking for it. Also,
             # signalling data taken was causing us to miss the first byte sent
             # by the downloaded program.
-            GPIO.output(CS_portB, GPIO.HIGH) # disable IC0                
-            GPIO.setup(data_bus, GPIO.OUT)   # set data bus for output
-            bus_owner = data_bus
+            release_bus(CS_portB)
+            claim_bus(CS_portA, GPIO.OUT)
     return int8
 
 def send_word(word):
@@ -169,13 +192,9 @@ def send_word(word):
 
 def get_bytes():
     "read a (possibly empty) sequence of bytes from the 6809. Non-blocking."
-    global bus_owner
-    # setup for input from port B
-    assert bus_owner == None
-    bus_owner = CS_portB
-    GPIO.output(CS_portB, GPIO.LOW)  # drive the data bus from port B
-
     in_bytes = bytearray() # return value, possibly empty
+
+    claim_bus(CS_portB, GPIO.IN)
 
     # check for data ready on port B (active low)
     while GPIO.LOW == GPIO.input(PortB_DATA_READY):
@@ -193,16 +212,13 @@ def get_bytes():
             pass
         GPIO.output(PortB_DATA_TAKEN, GPIO.HIGH)
 
-    GPIO.output(CS_portB, GPIO.HIGH)  # stop driving the data bus from port B
-    bus_owner = None
+    release_bus(CS_portB)
     
     return in_bytes
 
 def listen():
     "Wait for bytes from the 6809 and output them to the console"
-    assert bus_owner == None
     print("Listening...")
-    GPIO.setup(data_bus, GPIO.IN)   # set data bus for input
 
     my_time = time.time()
     
@@ -225,13 +241,7 @@ def listen():
 
 def dload_exec(load_addr, data, exec_addr):
     "Download bytes and execute specified address - not necessarily within the download"
-    global bus_owner # we're going to be changing the bus owner
-    # setup for output to port A
-    assert bus_owner == None
-    bus_owner = data_bus
-    GPIO.output(CS_portB, GPIO.HIGH) # ensure port B isn't driving the data bus...
-    GPIO.setup(data_bus, GPIO.OUT)   # ...before setting the data bus for output
-    GPIO.output(CS_portA, GPIO.LOW)  # drive data from the bus to port A
+    claim_bus(CS_portA, GPIO.OUT)
 
     send_bytes(b'\xAA')      # send the download prefix byte
     send_word(load_addr)     # send the destination addess
@@ -239,14 +249,10 @@ def dload_exec(load_addr, data, exec_addr):
     send_bytes(data)         # send the data
     send_word(exec_addr)     # send the execution address
     
-    GPIO.output(CS_portA, GPIO.HIGH) # stop driving port A
-    GPIO.setup(data_bus, GPIO.IN)    # and return the data bus to input
-    bus_owner = None
-
+    release_bus(CS_portA)
 
 def dload_exec_file(filename):
     "Download and execute the specified file"
-    assert bus_owner == None
     with open (filename, 'rb') as f:
         # Get load address
         load_addr = int.from_bytes(f.read(2), "big")
@@ -275,39 +281,30 @@ def chk_buttons():
 prev_x = [0, 0, 0, 0, 0, 0, 0, 0]
 
 def chk_x():
-    global bus_owner
     global prev_x
-    assert bus_owner == None
-    bus_owner = CS_x_axis
-    GPIO.output(bus_owner, GPIO.LOW) # select the x-axis HCTL2000
 
+    claim_bus(CS_x_axis, GPIO.IN)
     input = bus_read()
-    
+    release_bus(CS_x_axis)
+
     if input != prev_x:
         print ("X input =", input)
         prev_x = input
         
-    GPIO.output(bus_owner, GPIO.HIGH) # deselect the x-axis HCTL2000
-    bus_owner = None
-
+   
 prev_y = [0, 0, 0, 0, 0, 0, 0, 0]
 
 def chk_y():
-    global bus_owner
     global prev_y
-    assert bus_owner == None
-    bus_owner = CS_y_axis
-    GPIO.output(bus_owner, GPIO.LOW) # select the x-axis HCTL2000
 
+    claim_bus(CS_y_axis, GPIO.IN)
     input = bus_read()
+    release_bus(CS_y_axis)
     
     if input != prev_y:
         print ("Y input =", input)
         prev_y = input
         
-    GPIO.output(bus_owner, GPIO.HIGH) # deselect the x-axis HCTL2000
-    bus_owner = None
-
 # Main program starts here
 GPIO.add_event_detect(PortA_DATA_TAKEN, GPIO.FALLING)
 GPIO.add_event_detect(PortB_DATA_READY, GPIO.FALLING) # only needed for readback validation

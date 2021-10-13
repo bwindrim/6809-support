@@ -234,8 +234,8 @@ def listen():
              print(str(in_bytes, encoding='utf-8'), end='')
              
         chk_buttons()
-        chk_x()
-        chk_y()
+        chk_pos(CS_x_axis)
+        chk_pos(CS_y_axis)
             
     return
 
@@ -270,7 +270,7 @@ def dload_exec_file(filename):
         
         dload_exec(load_addr, data, exec_addr)
 
-prev_buttons = [1, 1]
+prev_buttons = None
 def chk_buttons():
     global prev_buttons
     buttons = [GPIO.input(PB_1_2), GPIO.input(PB_2_3)]
@@ -278,32 +278,21 @@ def chk_buttons():
         print ("buttons =", buttons)
         prev_buttons = buttons
 
-prev_x = [0, 0, 0, 0, 0, 0, 0, 0]
+prev_pos = {}
+prev_pos[CS_x_axis] = None
+prev_pos[CS_y_axis] = None
 
-def chk_x():
-    global prev_x
+def chk_pos(cs):
+    global prev_pos
 
-    claim_bus(CS_x_axis, GPIO.IN)
+    claim_bus(cs, GPIO.IN)
     input = bus_read()
-    release_bus(CS_x_axis)
+    release_bus(cs)
 
-    if input != prev_x:
-        print ("X input =", input)
-        prev_x = input
+    if input != prev_pos[cs]:
+        print ("input =", input)
+        prev_pos[cs] = input
         
-   
-prev_y = [0, 0, 0, 0, 0, 0, 0, 0]
-
-def chk_y():
-    global prev_y
-
-    claim_bus(CS_y_axis, GPIO.IN)
-    input = bus_read()
-    release_bus(CS_y_axis)
-    
-    if input != prev_y:
-        print ("Y input =", input)
-        prev_y = input
         
 # Main program starts here
 GPIO.add_event_detect(PortA_DATA_TAKEN, GPIO.FALLING)

@@ -1,5 +1,4 @@
 import sys
-import os
 
 try:
     import RPi.GPIO as GPIO
@@ -16,30 +15,30 @@ prog_name = file_list.pop(0) # pop the script name off the head of the list
 
 assert GPIO.getmode() == None
 
-GPIO.setmode(GPIO.BOARD); # use Pi connector pin numbering
+GPIO.setmode(GPIO.BCM); # use Broadcomm GPIO numbering
 
 # 6809 processor control (output, active-high)
-NMI = 24 # GP08
+NMI = 8 # GP08
 GPIO.setup(NMI, GPIO.OUT)
 GPIO.output(NMI, GPIO.LOW) # set NMI low before we take the 6809 out of reset
 
 # data bus (input/output)
-D0 = 11  # GP17
-D1 = 12  # GP18
-D2 = 13  # GP27
-D3 = 15  # GP22
-D4 = 16  # GP23
-D5 = 19  # GP10
-D6 = 21  # GP09
-D7 = 23  # GP11
+D0 = 17  # GP17
+D1 = 18  # GP18
+D2 = 27  # GP27
+D3 = 22  # GP22
+D4 = 23  # GP23
+D5 = 10  # GP10
+D6 =  9  # GP09
+D7 = 11  # GP11
 data_bus = [D7, D6, D5, D4, D3, D2, D1, D0]
 
 # chip selects (output, active-low, pull-up)
-CS0 = 26 # GP07
-CS1 = 29 # GP05
-CS2 = 31 # GP06
-CS3 =  3 # GP02
-CS4 =  5 # GP03
+CS0 =  7 # GP07
+CS1 =  5 # GP05
+CS2 =  6 # GP06
+CS3 =  2 # GP02
+CS4 =  3 # GP03
 chip_selects = [CS0, CS1, CS2, CS3, CS4]
 GPIO.setup(chip_selects, GPIO.OUT)
 GPIO.output(chip_selects, GPIO.HIGH) # setting CS2 high resets 6809
@@ -50,22 +49,22 @@ CS_x_axis = CS3
 CS_y_axis = CS4
 
 # HCTL2000 control signals
-HCTL_CLK =  7 # GP04
-HCTL_RST = 40 # GP21
+HCTL_CLK =  4 # GP04
+HCTL_RST = 21 # GP21
 hctl_controls = [HCTL_CLK, HCTL_RST]
 GPIO.setup(hctl_controls, GPIO.OUT)
 
 # mouse button inputs
-PB_1_2 = 35 # GP19
-PB_2_3 = 37 # GP26
+PB_1_2 = 19 # GP19
+PB_2_3 = 26 # GP26
 mouse_inputs = [PB_1_2, PB_2_3]
 GPIO.setup(mouse_inputs, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
 # handshakes (active-low)
-CA1 = 32 # GP12 - output
-CA2 = 33 # GP13 - input
-CB1 = 36 # GP16 - output
-CB2 = 38 # GP20 - input
+CA1 = 12 # GP12 - output
+CA2 = 13 # GP13 - input
+CB1 = 16 # GP16 - output
+CB2 = 20 # GP20 - input
 PortA_DATA_READY = CA1
 PortA_DATA_TAKEN = CA2
 PortB_DATA_TAKEN = CB1
@@ -183,7 +182,6 @@ def send_bytes(out_bytes):
             # by the downloaded program.
             release_bus(CS_portB)
             claim_bus(CS_portA, GPIO.OUT)
-    return int8
 
 def send_word(word):
     "Helper function to send a 16-bit integer, in hi-lo order"
@@ -232,7 +230,7 @@ def listen():
         in_bytes = get_bytes()
         if in_bytes:
              print(str(in_bytes, encoding='utf-8'), end='')
-             
+
         chk_buttons()
         chk_pos(CS_x_axis)
         chk_pos(CS_y_axis)

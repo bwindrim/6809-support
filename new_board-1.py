@@ -24,7 +24,8 @@ PA6 = Pin(18, Pin.OUT)
 PA7 = Pin(19, Pin.OUT)
 CA1 = Pin(20, Pin.OUT)
 CB1 = Pin(21, Pin.OUT)
-#NMI = Pin(22, Pin.OUT)
+NMI = Pin(22, Pin.OUT)
+RST = Pin(26, Pin.OUT) # note: this gets set low when initialised as output, which takes the 6809 out of reset
 
 PORTA = [PA7, PA6, PA5, PA4, PA3, PA2, PA1, PA0]
 PortA_DATA_READY = CA1
@@ -149,14 +150,13 @@ def get_bytes():
     "read a (possibly empty) sequence of bytes from the 6809. Non-blocking."
     in_bytes = bytearray() # return value, possibly empty
 
-    # check for data ready on port B (active low)
+    # Check for data ready on port B (active low). This depends on us detecting the data ready
+    # pulse during the 500ns that it is low.
     while 0 == PortB_DATA_READY.value():
         # Data ready, so read the bus and append to in_bytes.
-        # This assumes that the data bus is set for input,
-        # and that the port B chip select is active.
         int8 = bus_read_int8()
         # Pulse PortB_DATA_TAKEN (CB1) active low.
-        # This will set PortB_DATA_READY (CB2) high immediately,
+        # Note that PortB_DATA_READY (CB2) has already gone high,
         # so if we see it low again at the top of the loop then it's a new byte.
         PortB_DATA_TAKEN.value(0)
         in_bytes.append(int8)
@@ -175,13 +175,13 @@ def listen():
     while True:
         in_bytes = get_bytes()
         if in_bytes:
-             print(str(in_bytes, encoding='utf-8'), end='')
+             print(in_bytes)
             
     return
 
 # Main program starts here
 try:  
-    dload_exec_file("newtick.ex9")
+    dload_exec_file("blink1.ex9")
     print("Download complete, listening...")
     listen()
 except KeyboardInterrupt:

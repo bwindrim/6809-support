@@ -181,6 +181,8 @@ def listen():
 
 # Main program starts here
 try:  
+    time.sleep_ms(100)  # wait 100ms for 6809 to start up
+    dload_exec_file("boot2.ex9")
     dload_exec_file("blink1.ex9")
     print("Download complete, listening...")
     listen()

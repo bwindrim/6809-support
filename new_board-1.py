@@ -1,6 +1,7 @@
 import rp2
 import time
 from machine import Pin
+import uasyncio as asyncio
 
 #TXD = Pin(0, Pin.OUT)
 #RXD = Pin(1, Pin.IN)
@@ -145,38 +146,48 @@ def dload_exec_file(filename):
         
         dload_exec(load_addr, data, exec_addr)
 
-def get_bytes():
-    "read a (possibly empty) sequence of bytes from the 6809. Non-blocking."
-    in_bytes = bytearray() # return value, possibly empty
+def get_bytes_sync():
+    "helper preserving original (synchronous) behavior if needed"
+    in_bytes = bytearray()
+    while 0 == PortB_DATA_READY.value():
+        int8 = bus_read_int8()
+        PortB_DATA_TAKEN.low()
+        in_bytes.append(int8)
+        # delay to give 6809 time to send next byte
+        time.sleep_ms(1)
+        PortB_DATA_TAKEN.high()
+    return in_bytes
 
-    # Check for data ready on port B (active low). This depends on us detecting the data ready
-    # pulse during the 500ns that it is low.
-    while 0 == PortB_DATA_READY():
-        # Data ready, so read the bus and append to in_bytes.
+async def get_bytes():
+    "read a (possibly empty) sequence of bytes from the 6809. Non-blocking coroutine."
+    in_bytes = bytearray()
+    # Quick non-blocking check: if no data ready, return empty immediately
+    if PortB_DATA_READY.value() != 0:
+        return in_bytes
+
+    # Data ready is active-low; read until line goes high
+    while PortB_DATA_READY.value() == 0:
         int8 = bus_read_int8()
         # Pulse PortB_DATA_TAKEN (CB1) active low.
         # Note that PortB_DATA_READY (CB2) has already gone high,
         # so if we see it low again at the top of the loop then it's a new byte.
         PortB_DATA_TAKEN.low()
         in_bytes.append(int8)
-        # delay loop to give the 6809 time to send the next byte (if any)
-        for i in range(150):
-            pass
+        # give the 6809 time to prepare next byte (yield to event loop)
+        await asyncio.sleep_ms(1)
         PortB_DATA_TAKEN.high()
-        
+        # tiny yield so other tasks can run
+        await asyncio.sleep_ms(0)
     return in_bytes
 
-def listen():
-    "Wait for bytes from the 6809 and output them to the console"
-
-    my_time = time.time()
-    
+async def listen():
+    "Wait for bytes from the 6809 and output them to the console (async task)"
     while True:
-        in_bytes = get_bytes()
+        in_bytes = await get_bytes()
         if in_bytes:
-             print(in_bytes)
-            
-    return
+            print(in_bytes)
+        # avoid busy spinning, yield to other tasks
+        await asyncio.sleep_ms(10)
 
 # Main program starts here
 try:  
@@ -187,7 +198,8 @@ try:
     for pin in PORTA:
         pin.init(Pin.IN)  # release Port A pins
     print("Download complete, listening...")
-    listen()
+    # Run the async listener (this will block here until cancelled)
+    asyncio.run(listen())
 except KeyboardInterrupt:
     print("Interrupted by user")
 print("Done.")

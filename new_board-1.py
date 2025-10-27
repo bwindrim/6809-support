@@ -22,10 +22,10 @@ PA4 = Pin(16, Pin.OUT)
 PA5 = Pin(17, Pin.OUT)
 PA6 = Pin(18, Pin.OUT)
 PA7 = Pin(19, Pin.OUT)
-CA1 = Pin(20, Pin.OUT)
-CB1 = Pin(21, Pin.OUT)
-NMI = Pin(22, Pin.OUT)
-RST = Pin(26, Pin.OUT) # note: this gets set low when initialised as output, which takes the 6809 out of reset
+CA1 = Pin(20, Pin.OUT, value=1) # set port A "data ready" output high
+CB1 = Pin(21, Pin.OUT, value=1) # set port B "data taken" output high
+NMI = Pin(22, Pin.OUT, value=0) # set NMI low (inactive)
+RST = Pin(26, Pin.OUT, value=0) # note: this takes the 6809 out of reset when set low
 
 PORTA = [PA7, PA6, PA5, PA4, PA3, PA2, PA1, PA0]
 PortA_DATA_READY = CA1
@@ -34,9 +34,6 @@ PortA_DATA_TAKEN = CA2
 PORTB = [PB7, PB6, PB5, PB4, PB3, PB2, PB1, PB0]
 PortB_DATA_TAKEN = CB1
 PortB_DATA_READY = CB2 
-
-PortA_DATA_READY.value(1)  # set "data ready" output high
-PortB_DATA_TAKEN.value(1)  # set "data taken" output high
 
 
 @rp2.asm_pio()
@@ -100,11 +97,11 @@ def send_bytes_pulse(out_bytes):
         output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
         for pin, val in zip(PORTA, output):
             pin.value(val)
-        PortA_DATA_READY.value(0)   # signal data ready
+        PortA_DATA_READY.low()   # signal data ready
         time.sleep_ms(1)  # wait 1ms for data taken (should be much less)
 
         # Data taken, we can now change the bus
-        PortA_DATA_READY.value(1)  # clear data ready
+        PortA_DATA_READY.high()  # clear data ready
 
 # Send bytes with handshake on CA1/CA2.
 # This waits for the 6809 to acknowledge each byte before sending the next.
@@ -117,11 +114,11 @@ def send_bytes_handshake(out_bytes):
         output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
         for pin, val in zip(PORTA, output):
             pin.value(val)
-        PortA_DATA_READY.value(0)   # signal data ready
+        PortA_DATA_READY.low()   # signal data ready
         # Wait for the 6809 to signal data taken.
-        while PortA_DATA_TAKEN.value() != 0:
+        while PortA_DATA_TAKEN() != 0:
             pass
-        PortA_DATA_READY.value(1)  # clear data ready
+        PortA_DATA_READY.high()  # clear data ready
 
 send_bytes = send_bytes_pulse
 
@@ -154,18 +151,18 @@ def get_bytes():
 
     # Check for data ready on port B (active low). This depends on us detecting the data ready
     # pulse during the 500ns that it is low.
-    while 0 == PortB_DATA_READY.value():
+    while 0 == PortB_DATA_READY():
         # Data ready, so read the bus and append to in_bytes.
         int8 = bus_read_int8()
         # Pulse PortB_DATA_TAKEN (CB1) active low.
         # Note that PortB_DATA_READY (CB2) has already gone high,
         # so if we see it low again at the top of the loop then it's a new byte.
-        PortB_DATA_TAKEN.value(0)
+        PortB_DATA_TAKEN.low()
         in_bytes.append(int8)
         # delay loop to give the 6809 time to send the next byte (if any)
         for i in range(150):
             pass
-        PortB_DATA_TAKEN.value(1)
+        PortB_DATA_TAKEN.high()
         
     return in_bytes
 

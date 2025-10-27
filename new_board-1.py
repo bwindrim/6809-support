@@ -153,41 +153,37 @@ def get_bytes_sync():
         int8 = bus_read_int8()
         PortB_DATA_TAKEN.low()
         in_bytes.append(int8)
-        # delay to give 6809 time to send next byte
-        time.sleep_ms(1)
+        # delay loop to give the 6809 time to send the next byte (if any)
+        for i in range(150):
+            pass
         PortB_DATA_TAKEN.high()
     return in_bytes
 
 async def get_bytes():
-    "read a (possibly empty) sequence of bytes from the 6809. Non-blocking coroutine."
+    "read a (non-empty) sequence of bytes from the 6809. Non-blocking coroutine."
     in_bytes = bytearray()
-    # Quick non-blocking check: if no data ready, return empty immediately
-    if PortB_DATA_READY.value() != 0:
-        return in_bytes
 
-    # Data ready is active-low; read until line goes high
-    while PortB_DATA_READY.value() == 0:
+    # Wait until 6809 asserts data-ready (active low)
+    while PortB_DATA_READY.value() != 0:
+        await asyncio.sleep_ms(1)
+
+    # Read at least one byte (guarantee non-empty result)
+    # Read bytes while data-ready remains asserted
+    while True:
         int8 = bus_read_int8()
-        # Pulse PortB_DATA_TAKEN (CB1) active low.
-        # Note that PortB_DATA_READY (CB2) has already gone high,
-        # so if we see it low again at the top of the loop then it's a new byte.
         PortB_DATA_TAKEN.low()
         in_bytes.append(int8)
-        # give the 6809 time to prepare next byte (yield to event loop)
-        await asyncio.sleep_ms(1)
         PortB_DATA_TAKEN.high()
-        # tiny yield so other tasks can run
-        await asyncio.sleep_ms(0)
+        await asyncio.sleep_ms(0)  # yield
+        if PortB_DATA_READY.value() != 0:
+            break
     return in_bytes
 
 async def listen():
     "Wait for bytes from the 6809 and output them to the console (async task)"
     while True:
         in_bytes = await get_bytes()
-        if in_bytes:
-            print(in_bytes)
-        # avoid busy spinning, yield to other tasks
-        await asyncio.sleep_ms(10)
+        print(in_bytes)
 
 # Main program starts here
 try:  

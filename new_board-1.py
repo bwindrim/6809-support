@@ -87,9 +87,30 @@ def bus_read():
     int8 = bus_read_int8()
     return [int(x) for x in '{:08b}'.format(int8)]
 
-def send_bytes(out_bytes):
-    "write a series of bytes to Port A, with handshake, and read back from port B"
-    validate = False
+# Send bytes with a pulse on CA1 to indicate data ready.
+# This does not wait for acknowledgement from the 6809, but has a 1ms delay
+# after sending each byte.
+# This function is used for bootloading only, to send the second-stage bootloader
+# to the first-stage bootloader.
+def send_bytes_pulse(out_bytes):
+    "write a series of bytes to Port A, with handshaking"
+    
+    for int8 in out_bytes:
+        assert int8 < 256
+        output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
+        for pin, val in zip(PORTA, output):
+            pin.value(val)
+        PortA_DATA_READY.value(0)   # signal data ready
+        time.sleep_ms(1)  # wait 1ms for data taken (should be much less)
+
+        # Data taken, we can now change the bus
+        PortA_DATA_READY.value(1)  # clear data ready
+
+# Send bytes with handshake on CA1/CA2.
+# This waits for the 6809 to acknowledge each byte before sending the next.
+# This function is used for general data transfer after bootloading.
+def send_bytes_handshake(out_bytes):
+    "write a series of bytes to Port A, with handshaking"
     
     for int8 in out_bytes:
         assert int8 < 256
@@ -98,30 +119,11 @@ def send_bytes(out_bytes):
             pin.value(val)
         PortA_DATA_READY.value(0)   # signal data ready
         # Wait for the 6809 to signal data taken.
-        #while PortA_DATA_TAKEN.value() == 1:
-        #    pass
-        time.sleep_ms(1)  # wait 1ms for data taken (should be much less)
-
-        # Data taken, we can now change the bus
+        while PortA_DATA_TAKEN.value() != 0:
+            pass
         PortA_DATA_READY.value(1)  # clear data ready
 
-        # Optional readback validation of sent byte
-        if validate:
-            while PortB_DATA_READY.value() == 0:
-                pass
-            
-            # read back
-            # setup for input from port B
-            
-            # read data from bus, compare output and input
-            input = bus_read()
-            if input != output:
-                print("output = ", output, "input = ", input)
-                
-            # Note that we don't signal "data taken" during download validation,
-            # as the 6809 is in strobe mode and isn't looking for it. Also,
-            # signalling data taken was causing us to miss the first byte sent
-            # by the downloaded program.
+send_bytes = send_bytes_pulse
 
 def send_word(word):
     "Helper function to send a 16-bit integer, in hi-lo order"
@@ -183,7 +185,10 @@ def listen():
 try:  
     time.sleep_ms(100)  # wait 100ms for 6809 to start up
     dload_exec_file("boot2.ex9")
+    send_bytes = send_bytes_handshake
     dload_exec_file("blink1.ex9")
+    for pin in PORTA:
+        pin.init(Pin.IN)  # release Port A pins
     print("Download complete, listening...")
     listen()
 except KeyboardInterrupt:

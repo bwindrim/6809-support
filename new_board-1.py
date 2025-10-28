@@ -137,23 +137,23 @@ def dload_exec_file(filename):
         
         dload_exec(load_addr, data, exec_addr)
 
-async def get_bytes():
+async def get_bytes(port=PORTB, data_ready=PortB_DATA_READY, data_taken=PortB_DATA_TAKEN):
     "read a (non-empty) sequence of bytes from the 6809. Non-blocking coroutine."
     in_bytes = bytearray()
 
     # Wait until 6809 asserts data-ready (active low)
-    while PortB_DATA_READY.value() != 0:
+    while data_ready.value() != 0:
         await asyncio.sleep_ms(1)
 
     # Read at least one byte (to guarantee non-empty result) and keep
     # reading bytes while data-ready remains asserted.
     while True:
-        int8 = bus_read(PORTB)
-        PortB_DATA_TAKEN.low()
+        int8 = bus_read(port)
+        data_taken.low()
         in_bytes.append(int8)
-        PortB_DATA_TAKEN.high()
+        data_taken.high()
         await asyncio.sleep_ms(0)  # yield
-        if PortB_DATA_READY.value() != 0:
+        if data_ready.value() != 0:
             break
     return in_bytes
 

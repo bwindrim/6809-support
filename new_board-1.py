@@ -104,7 +104,7 @@ def send_bytes_handshake(out_bytes, port=PORTA, data_ready=PortA_DATA_READY, dat
             pass
         data_ready.high()  # clear data ready
 
-
+# Initially, use the pulse version for bootloading.
 send_bytes = send_bytes_pulse
 
 def send_word(word):
@@ -163,7 +163,15 @@ async def listen():
 
     while True:
         in_bytes = await get_bytes()
-        print(in_bytes)
+        LED.toggle()
+        try:
+            # Print the incoming bytes as UTF-8, if valid...
+            print(in_bytes.decode('utf-8'), end='')
+        except UnicodeError:
+            # ...otherwise, just print the raw bytes.
+            print(in_bytes)
+        await asyncio.sleep_ms(10)  # yield
+        LED.toggle()
 
 # Main program starts here
 try:
@@ -172,7 +180,7 @@ try:
     RST.low()
     time.sleep_ms(250)  # wait 250ms for 6809 to start up
     dload_exec_file("boot2.ex9")
-    send_bytes = send_bytes_handshake
+    send_bytes = send_bytes_handshake # switch to handshake version after bootloading
     dload_exec_file("blink1.ex9")
     for pin in PORTA:
         pin.init(Pin.IN)  # release Port A pins

@@ -17,14 +17,14 @@ PB6 = Pin(8, Pin.IN)
 PB7 = Pin(9, Pin.IN)
 CB2 = Pin(10, Pin.IN)
 CA2 = Pin(11, Pin.IN)
-PA0 = Pin(12, Pin.OUT)
-PA1 = Pin(13, Pin.OUT)
-PA2 = Pin(14, Pin.OUT)
-PA3 = Pin(15, Pin.OUT)
-PA4 = Pin(16, Pin.OUT)
-PA5 = Pin(17, Pin.OUT)
-PA6 = Pin(18, Pin.OUT)
-PA7 = Pin(19, Pin.OUT)
+PA0 = Pin(12, Pin.IN)
+PA1 = Pin(13, Pin.IN)
+PA2 = Pin(14, Pin.IN)
+PA3 = Pin(15, Pin.IN)
+PA4 = Pin(16, Pin.IN)
+PA5 = Pin(17, Pin.IN)
+PA6 = Pin(18, Pin.IN)
+PA7 = Pin(19, Pin.IN)
 CA1 = Pin(20, Pin.OUT, value=1) # set port A "data ready" output high
 CB1 = Pin(21, Pin.OUT, value=1) # set port B "data taken" output high
 NMI = Pin(22, Pin.OUT, value=0) # set NMI low (inactive)
@@ -54,12 +54,19 @@ def count_strobes():
 
 def dload_exec(load_addr, data, exec_addr):
     "Download bytes and execute specified address - not necessarily within the download"
- 
-    send_bytes(b'\xAA')      # send the download prefix byte
-    send_word(load_addr)     # send the destination addess
-    send_word(len(data))     # send the data length
-    send_bytes(data)         # send the data
-    send_word(exec_addr)     # send the execution address
+    try:
+        for pin in PORTA:
+            pin.init(Pin.OUT)    # set Port A pins to output
+        send_bytes(b'\xAA')      # send the download prefix byte
+        send_word(load_addr)     # send the destination addess
+        send_word(len(data))     # send the data length
+        send_bytes(data)         # send the data
+        send_word(exec_addr)     # send the execution address
+    except Exception as e:
+        print("Error during download/exec:", e)
+    finally:
+        for pin in PORTA:
+            pin.init(Pin.IN)  # release Port A pins
 
 def bus_read(port):
     "Read the 8 bits of the specified port into a list of bits"
@@ -177,20 +184,16 @@ async def listen():
 try:
     LED.on()
     time.sleep_ms(250)  # wait 250ms for 6809 to reset
-    RST.low()
+    RST.low() # take 6809 out of reset
     time.sleep_ms(250)  # wait 250ms for 6809 to start up
-    dload_exec_file("boot2.ex9")
+    dload_exec_file("boot2.ex9") # load second-stage bootloader
     send_bytes = send_bytes_handshake # switch to handshake version after bootloading
-    dload_exec_file("blink1.ex9")
-    for pin in PORTA:
-        pin.init(Pin.IN)  # release Port A pins
+    dload_exec_file("blink1.ex9") # load the target program
     print("Download complete, listening...")
     # Run the async listener (this will block here until cancelled)
     asyncio.run(listen())
 except KeyboardInterrupt:
     print("Interrupted by user")
 finally:
-    for pin in PORTA:
-        pin.init(Pin.IN)  # release Port A pins
     print("Done.")
     LED.off()

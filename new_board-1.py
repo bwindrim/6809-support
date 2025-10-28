@@ -60,27 +60,13 @@ def dload_exec(load_addr, data, exec_addr):
     send_word(len(data))     # send the data length
     send_bytes(data)         # send the data
     send_word(exec_addr)     # send the execution address
-    
-def bus_read_int8():
-    "Read the 8 bits of the data bus into an integer"
-    B0 = PB0.value()
-    B1 = PB1.value()
-    B2 = PB2.value()
-    B3 = PB3.value()
-    B4 = PB4.value()
-    B5 = PB5.value()
-    B6 = PB6.value()
-    B7 = PB7.value()
 
-    return (B0 |
-            B1 << 1 |
-            B2 << 2 |
-            B3 << 3 |
-            B4 << 4 |
-            B5 << 5 |
-            B6 << 6 |
-            B7 << 7
-        )
+def bus_read(port):
+    "Read the 8 bits of the specified port into a list of bits"
+    bits = 0
+    for pin in port:
+        bits = (bits << 1) | pin.value()
+    return bits
 
 # Send bytes with a pulse on CA1 to indicate data ready.
 # This does not wait for acknowledgement from the 6809, but has a 1ms delay
@@ -143,19 +129,6 @@ def dload_exec_file(filename):
         
         dload_exec(load_addr, data, exec_addr)
 
-def get_bytes_sync():
-    "helper preserving original (synchronous) behavior if needed"
-    in_bytes = bytearray()
-    while 0 == PortB_DATA_READY.value():
-        int8 = bus_read_int8()
-        PortB_DATA_TAKEN.low()
-        in_bytes.append(int8)
-        # delay loop to give the 6809 time to send the next byte (if any)
-        for i in range(150):
-            pass
-        PortB_DATA_TAKEN.high()
-    return in_bytes
-
 async def get_bytes():
     "read a (non-empty) sequence of bytes from the 6809. Non-blocking coroutine."
     in_bytes = bytearray()
@@ -167,7 +140,7 @@ async def get_bytes():
     # Read at least one byte (to guarantee non-empty result) and keep
     # reading bytes while data-ready remains asserted.
     while True:
-        int8 = bus_read_int8()
+        int8 = bus_read(PORTB)
         PortB_DATA_TAKEN.low()
         in_bytes.append(int8)
         PortB_DATA_TAKEN.high()

@@ -90,19 +90,20 @@ def send_bytes_pulse(out_bytes):
 # Send bytes with handshake on CA1/CA2.
 # This waits for the 6809 to acknowledge each byte before sending the next.
 # This function is used for general data transfer after bootloading.
-def send_bytes_handshake(out_bytes):
-    "write a series of bytes to Port A, with handshaking"
-    
+def send_bytes_handshake(out_bytes, port=PORTA, data_ready=PortA_DATA_READY, data_taken=PortA_DATA_TAKEN):
+    "write a series of bytes to the specified port, with handshaking"
+
     for int8 in out_bytes:
         assert int8 < 256
         output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
-        for pin, val in zip(PORTA, output):
+        for pin, val in zip(port, output):
             pin.value(val)
-        PortA_DATA_READY.low()   # signal data ready
+        data_ready.low()   # signal data ready
         # Wait for the 6809 to signal data taken.
-        while PortA_DATA_TAKEN() != 0:
+        while data_taken() != 0:
             pass
-        PortA_DATA_READY.high()  # clear data ready
+        data_ready.high()  # clear data ready
+
 
 send_bytes = send_bytes_pulse
 

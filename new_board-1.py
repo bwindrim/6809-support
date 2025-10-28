@@ -31,12 +31,8 @@ NMI = Pin(22, Pin.OUT, value=0) # set NMI low (inactive)
 RST = Pin(26, Pin.OUT, value=1) # note: this takes the 6809 out of reset when set low
 
 PORTA = [PA7, PA6, PA5, PA4, PA3, PA2, PA1, PA0]
-PortA_DATA_READY = CA1
-PortA_DATA_TAKEN = CA2
 
 PORTB = [PB7, PB6, PB5, PB4, PB3, PB2, PB1, PB0]
-PortB_DATA_TAKEN = CB1
-PortB_DATA_READY = CB2 
 
 
 @rp2.asm_pio()
@@ -47,7 +43,7 @@ def count_strobes():
     jmp('count_strobes')
 
 # Set up PIO
-#sm = rp2.StateMachine(0, count_strobes, freq=2000_000, in_base=PortA_DATA_TAKEN)
+#sm = rp2.StateMachine(0, count_strobes, freq=2000_000, in_base=CA2)
 #sm.irq(lambda p: print("Strobe detected"))
 #sm.active(1)
 #time.sleep(0.1)  # give PIO time to start
@@ -88,16 +84,16 @@ def send_bytes_pulse(out_bytes):
         output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
         for pin, val in zip(PORTA, output):
             pin.value(val)
-        PortA_DATA_READY.low()   # signal data ready
+        CA1.low()   # signal data ready
         time.sleep_ms(1)  # wait 1ms for data taken (should be much less)
 
         # Assume the data has been taken.
-        PortA_DATA_READY.high()  # clear data ready
+        CA1.high()  # clear data ready
 
 # Send bytes with handshake on CA1/CA2.
 # This waits for the 6809 to acknowledge each byte before sending the next.
 # This function is used for general data transfer after bootloading.
-def send_bytes_handshake(out_bytes, port=PORTA, data_ready=PortA_DATA_READY, data_taken=PortA_DATA_TAKEN):
+def send_bytes_handshake(out_bytes, port=PORTA, data_ready=CA1, data_taken=CA2):
     "write a series of bytes to the specified port, with handshaking"
 
     for int8 in out_bytes:
@@ -137,7 +133,7 @@ def dload_exec_file(filename):
         
         dload_exec(load_addr, data, exec_addr)
 
-async def get_bytes(port=PORTB, data_ready=PortB_DATA_READY, data_taken=PortB_DATA_TAKEN):
+async def get_bytes(port=PORTB, data_ready=CB2, data_taken=CB1):
     "read a (non-empty) sequence of bytes from the 6809. Non-blocking coroutine."
     in_bytes = bytearray()
 
@@ -146,7 +142,7 @@ async def get_bytes(port=PORTB, data_ready=PortB_DATA_READY, data_taken=PortB_DA
         await asyncio.sleep_ms(1)
 
     # Read at least one byte (to guarantee non-empty result) and keep
-    # reading bytes while data-ready remains asserted.
+    # reading bytes while data_ready remains asserted (low).
     while True:
         int8 = bus_read(port)
         data_taken.low()
@@ -169,7 +165,7 @@ async def listen():
     asyncio.create_task(toggle_nmi())
 
     while True:
-        in_bytes = await get_bytes()
+        in_bytes = await get_bytes(port=PORTA, data_ready=CA2, data_taken=CA1)
         LED.toggle()
         try:
             # Print the incoming bytes as UTF-8, if valid...
@@ -188,7 +184,7 @@ try:
     time.sleep_ms(250)  # wait 250ms for 6809 to start up
     dload_exec_file("boot2.ex9") # load second-stage bootloader
     send_bytes = send_bytes_handshake # switch to handshake version after bootloading
-    dload_exec_file("blink1.ex9") # load the target program
+    dload_exec_file("blink2.ex9") # load the target program
     print("Download complete, listening...")
     # Run the async listener (this will block here until cancelled)
     asyncio.run(listen())

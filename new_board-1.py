@@ -3,6 +3,8 @@ import time
 from machine import Pin
 import uasyncio as asyncio
 
+LED = Pin(25, Pin.OUT)
+
 #TXD = Pin(0, Pin.OUT)
 #RXD = Pin(1, Pin.IN)
 PB0 = Pin(2, Pin.IN)
@@ -26,7 +28,7 @@ PA7 = Pin(19, Pin.OUT)
 CA1 = Pin(20, Pin.OUT, value=1) # set port A "data ready" output high
 CB1 = Pin(21, Pin.OUT, value=1) # set port B "data taken" output high
 NMI = Pin(22, Pin.OUT, value=0) # set NMI low (inactive)
-RST = Pin(26, Pin.OUT, value=0) # note: this takes the 6809 out of reset when set low
+RST = Pin(26, Pin.OUT, value=1) # note: this takes the 6809 out of reset when set low
 
 PORTA = [PA7, PA6, PA5, PA4, PA3, PA2, PA1, PA0]
 PortA_DATA_READY = CA1
@@ -80,11 +82,6 @@ def bus_read_int8():
             B7 << 7
         )
 
-def bus_read():
-    "Read the 8 bits of the data bus into a list"
-    int8 = bus_read_int8()
-    return [int(x) for x in '{:08b}'.format(int8)]
-
 # Send bytes with a pulse on CA1 to indicate data ready.
 # This does not wait for acknowledgement from the 6809, but has a 1ms delay
 # after sending each byte.
@@ -101,7 +98,7 @@ def send_bytes_pulse(out_bytes):
         PortA_DATA_READY.low()   # signal data ready
         time.sleep_ms(1)  # wait 1ms for data taken (should be much less)
 
-        # Data taken, we can now change the bus
+        # Assume the data has been taken.
         PortA_DATA_READY.high()  # clear data ready
 
 # Send bytes with handshake on CA1/CA2.
@@ -167,8 +164,8 @@ async def get_bytes():
     while PortB_DATA_READY.value() != 0:
         await asyncio.sleep_ms(1)
 
-    # Read at least one byte (guarantee non-empty result)
-    # Read bytes while data-ready remains asserted
+    # Read at least one byte (to guarantee non-empty result) and keep
+    # reading bytes while data-ready remains asserted.
     while True:
         int8 = bus_read_int8()
         PortB_DATA_TAKEN.low()
@@ -179,15 +176,27 @@ async def get_bytes():
             break
     return in_bytes
 
+async def toggle_nmi():
+    "Toggle NMI every 3 seconds"
+    while True:
+        await asyncio.sleep_ms(3000)
+        NMI.toggle()
+
 async def listen():
     "Wait for bytes from the 6809 and output them to the console (async task)"
+
+    asyncio.create_task(toggle_nmi())
+
     while True:
         in_bytes = await get_bytes()
         print(in_bytes)
 
 # Main program starts here
-try:  
-    time.sleep_ms(100)  # wait 100ms for 6809 to start up
+try:
+    LED.on()
+    time.sleep_ms(250)  # wait 250ms for 6809 to reset
+    RST.low()
+    time.sleep_ms(250)  # wait 250ms for 6809 to start up
     dload_exec_file("boot2.ex9")
     send_bytes = send_bytes_handshake
     dload_exec_file("blink1.ex9")
@@ -198,4 +207,8 @@ try:
     asyncio.run(listen())
 except KeyboardInterrupt:
     print("Interrupted by user")
-print("Done.")
+finally:
+    for pin in PORTA:
+        pin.init(Pin.IN)  # release Port A pins
+    print("Done.")
+    LED.off()

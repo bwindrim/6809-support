@@ -3,8 +3,6 @@ import time
 from machine import Pin
 import uasyncio as asyncio
 
-LED = Pin(25, Pin.OUT)
-
 #TXD = Pin(0, Pin.OUT)
 #RXD = Pin(1, Pin.IN)
 #PB0 = Pin(2, Pin.IN)
@@ -16,7 +14,7 @@ LED = Pin(25, Pin.OUT)
 #PB6 = Pin(8, Pin.IN)
 #PB7 = Pin(9, Pin.IN)
 #CB2 = Pin(10, Pin.IN)
-#CA2 = Pin(11, Pin.IN)
+CA2 = Pin(11, Pin.IN)
 PA0 = Pin(12, Pin.IN)
 PA1 = Pin(13, Pin.IN)
 PA2 = Pin(14, Pin.IN)
@@ -26,13 +24,12 @@ PA5 = Pin(17, Pin.IN)
 PA6 = Pin(18, Pin.IN)
 PA7 = Pin(19, Pin.IN)
 CA1 = Pin(20, Pin.OUT, value=1) # set port A "data ready" output high
-CB1 = Pin(21, Pin.OUT, value=1) # set port B "data taken" output high
+#CB1 = Pin(21, Pin.OUT, value=1) # set port B "data taken" output high
 NMI = Pin(22, Pin.OUT, value=0) # set NMI low (inactive)
-RST = Pin(26, Pin.OUT, value=1) # note: this takes the 6809 out of reset when set low
+LED = Pin(25, Pin.OUT)
+RST = Pin(26, Pin.OUT, value=1) # holds the 6809 in reset until set low, below
 
 PORTA = [PA7, PA6, PA5, PA4, PA3, PA2, PA1, PA0]
-
-PORTB = [PB7, PB6, PB5, PB4, PB3, PB2, PB1, PB0]
 
 
 @rp2.asm_pio()
@@ -133,7 +130,7 @@ def dload_exec_file(filename):
         
         dload_exec(load_addr, data, exec_addr)
 
-async def get_bytes(port=PORTB, data_ready=CB2, data_taken=CB1):
+async def get_bytes(port=PORTA, data_ready=CA2, data_taken=CA1):
     "read a (non-empty) sequence of bytes from the 6809. Non-blocking coroutine."
     in_bytes = bytearray()
 
@@ -154,7 +151,7 @@ async def get_bytes(port=PORTB, data_ready=CB2, data_taken=CB1):
     return in_bytes
 
 async def toggle_nmi():
-    "Toggle NMI every 3 seconds"
+    "Toggle NMI every 3 seconds (async task)"
     while True:
         await asyncio.sleep_ms(3000)
         NMI.toggle()
@@ -165,7 +162,7 @@ async def listen():
     asyncio.create_task(toggle_nmi())
 
     while True:
-        in_bytes = await get_bytes(port=PORTA, data_ready=CA2, data_taken=CA1)
+        in_bytes = await get_bytes()
         LED.toggle()
         try:
             # Print the incoming bytes as UTF-8, if valid...

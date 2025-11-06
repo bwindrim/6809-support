@@ -124,7 +124,7 @@ def dload_exec_file(filename):
         # Get exec address
         exec_addr = int.from_bytes(f.read(2), "big")
 
-        print ("load address = ", hex(load_addr),
+        print (filename, "load address = ", hex(load_addr),
                "length = ", length,
                "exec address = ", hex(exec_addr));
         
@@ -181,7 +181,8 @@ try:
     time.sleep_ms(250)  # wait 250ms for 6809 to start up
     dload_exec_file("boot2.ex9") # load second-stage bootloader
     send_bytes = send_bytes_handshake # switch to handshake version after bootloading
-    dload_exec_file("blink2.ex9") # load the target program
+    dload_exec_file("despatch.ex9") # load the 6522 interrupt despatcher
+    dload_exec_file("blink3.ex9") # load the target program
     print("Download complete, listening...")
     # Run the async listener (this will block here until cancelled)
     asyncio.run(listen())

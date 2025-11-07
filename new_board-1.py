@@ -111,9 +111,13 @@ def send_word(word):
     "Helper function to send a 16-bit integer, in hi-lo order"
     send_bytes(word.to_bytes(2, 'big'))
 
-def dload_exec_file(filename):
+memtop = 0xFE00
+
+def dload_exec_file(filename, relocate=True):
     "Download and execute the specified file"
     with open (filename, 'rb') as f:
+        global memtop
+
         # Get load address
         load_addr = int.from_bytes(f.read(2), "big")
         # Get data length
@@ -123,6 +127,12 @@ def dload_exec_file(filename):
         assert length == len(data)
         # Get exec address
         exec_addr = int.from_bytes(f.read(2), "big")
+
+        if load_addr == 0 and relocate: # relocatable file, load below memtop
+            offset = memtop - length
+            memtop = offset
+            load_addr += offset
+            exec_addr += offset
 
         print (filename, "load address = ", hex(load_addr),
                "length = ", length,

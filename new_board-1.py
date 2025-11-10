@@ -192,7 +192,8 @@ try:
     dload_exec_file("boot2.ex9") # load second-stage bootloader
     send_bytes = send_bytes_handshake # switch to handshake version after bootloading
     dload_exec_file("despatch.ex9") # load the 6522 interrupt despatcher
-    dload_exec_file("blink3.ex9") # load the target program
+    dload_exec_file("timer1.ex9") # load the 6522 interrupt despatcher
+    dload_exec_file("blink4.ex9") # load the target program
     print("Download complete, listening...")
     # Run the async listener (this will block here until cancelled)
     asyncio.run(listen())

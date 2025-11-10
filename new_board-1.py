@@ -193,6 +193,7 @@ try:
     send_bytes = send_bytes_handshake # switch to handshake version after bootloading
     dload_exec_file("despatch.ex9") # load the 6522 interrupt despatcher
     dload_exec_file("timer1.ex9") # load the 6522 interrupt despatcher
+    dload_exec_file("panic.ex9") # load the 6522 interrupt despatcher
     dload_exec_file("blink4.ex9") # load the target program
     print("Download complete, listening...")
     # Run the async listener (this will block here until cancelled)

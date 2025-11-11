@@ -183,18 +183,25 @@ async def listen():
         await asyncio.sleep_ms(10)  # yield
         LED.toggle()
 
+bootloader = "boot2.ex9"
+modules = [
+    "despatch.ex9", # Interrupt despatcher.
+    "timer1.ex9",   # Timer 1 module.
+    "panic.ex9"     # Panic handler module.
+]
+target_program = "blink4.ex9"
+
 # Main program starts here
 try:
     LED.on()
     time.sleep_ms(250)  # wait 250ms for 6809 to reset
     RST.low() # take 6809 out of reset
     time.sleep_ms(250)  # wait 250ms for 6809 to start up
-    dload_exec_file("boot2.ex9") # load second-stage bootloader
+    dload_exec_file(bootloader) # load second-stage bootloader
     send_bytes = send_bytes_handshake # switch to handshake version after bootloading
-    dload_exec_file("despatch.ex9") # load the 6522 interrupt despatcher
-    dload_exec_file("timer1.ex9") # load the 6522 interrupt despatcher
-    dload_exec_file("panic.ex9") # load the 6522 interrupt despatcher
-    dload_exec_file("blink4.ex9") # load the target program
+    for module in modules:
+        dload_exec_file(module) # load the support modules
+    dload_exec_file(target_program) # load the target program
     print("Download complete, listening...")
     # Run the async listener (this will block here until cancelled)
     asyncio.run(listen())

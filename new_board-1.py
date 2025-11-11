@@ -161,10 +161,12 @@ async def get_bytes(port=PORTA, data_ready=CA2, data_taken=CA1):
     return in_bytes
 
 async def toggle_nmi():
-    "Toggle NMI every 3 seconds (async task)"
+    "Raise NMI every 6 seconds (async task)"
     while True:
-        await asyncio.sleep_ms(3000)
-        NMI.toggle()
+        await asyncio.sleep_ms(6000)
+        NMI(1)
+        await asyncio.sleep_ms(1)
+        NMI(0)
 
 async def listen():
     "Wait for bytes from the 6809 and output them to the console (async task)"

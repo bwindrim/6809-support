@@ -145,7 +145,7 @@ async def get_bytes(port=PORTA, data_ready=CA2, data_taken=CA1):
     in_bytes = bytearray()
 
     # Wait until 6809 asserts data-ready (active low)
-    while data_ready.value() != 0:
+    while data_ready.value() == 1:
         await asyncio.sleep_ms(1)
 
     # Read at least one byte (to guarantee non-empty result) and keep
@@ -156,7 +156,7 @@ async def get_bytes(port=PORTA, data_ready=CA2, data_taken=CA1):
         in_bytes.append(int8)
         data_taken.high()
         await asyncio.sleep_ms(0)  # yield
-        if data_ready.value() != 0:
+        if data_ready.value() == 1:
             break
     return in_bytes
 
@@ -189,9 +189,10 @@ bootloader = "boot2.ex9"
 modules = [
     "despatch.ex9", # Interrupt despatcher.
     "timer1.ex9",   # Timer 1 module.
-    "panic.ex9"     # Panic handler module.
+    "panic.ex9",    # Panic handler module.
+    "portA.ex9"     # Port A stdout module.
 ]
-target_program = "blink4.ex9"
+target_program = "blink5.ex9"
 
 # Main program starts here
 try:

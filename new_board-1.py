@@ -93,16 +93,22 @@ def send_bytes_pulse(out_bytes):
 def send_bytes_handshake(out_bytes, port=PORTA, data_ready=CA1, data_taken=CA2):
     "write a series of bytes to the specified port, with handshaking"
 
-    for int8 in out_bytes:
-        assert int8 < 256
-        output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
-        for pin, val in zip(port, output):
-            pin.value(val)
-        data_ready.low()   # signal data ready
-        # Wait for the 6809 to signal data taken.
-        while data_taken() != 0:
-            pass
-        data_ready.high()  # clear data ready
+    byte_count = 0
+    try:
+        for int8 in out_bytes:
+            assert int8 < 256
+            output = [int(x) for x in '{:08b}'.format(int8)] # pythonically unpack byte to list of bits
+            for pin, val in zip(port, output):
+                pin.value(val)
+            data_ready.low()   # signal data ready
+            # Wait for the 6809 to signal data taken.
+            while data_taken() != 0:
+                pass
+            data_ready.high()  # clear data ready
+            byte_count += 1
+    except KeyboardInterrupt:
+        print(f"Download/exec interrupted by user, sent {byte_count}/{len(out_bytes)} bytes")
+        raise
 
 # Initially, use the pulse version for bootloading.
 send_bytes = send_bytes_pulse
@@ -190,9 +196,10 @@ modules = [
     "despatch.ex9", # Interrupt despatcher.
     "timer1.ex9",   # Timer 1 module.
     "panic.ex9",    # Panic handler module.
+    "shiftreg-noninv.ex9", # Shift register module.
     "portA.ex9"     # Port A stdout module.
 ]
-target_program = "blink5.ex9"
+target_program = "blink7.ex9"
 
 # Main program starts here
 try:
